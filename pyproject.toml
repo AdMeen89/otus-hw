@@ -1,0 +1,17 @@
+[project]
+name = "otus_hw"
+version = "0.1.0"
+description = "Homework for the course Highload Architect"
+authors = [
+    { name = "AdMeen89", email = "AdMeen89@gmail.com" },
+]
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+    "sqlalchemy>=2.0.31",
+    "psycopg2-binary>=2.9.10",
+    "yoyo-migrations>=6.3.0",
+]
