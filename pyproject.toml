@@ -11,7 +11,16 @@ license = { text = "MIT" }
 dependencies = [
     "fastapi>=0.110.0",
     "uvicorn>=0.29.0",
+    "greenlet>=2.0.2",
     "sqlalchemy>=2.0.31",
-    "psycopg2-binary>=2.9.10",
+    "asyncpg>=0.29.0",
     "yoyo-migrations>=6.3.0",
+    "python-dotenv>=1.0.1",
+    "pydantic>=2.5.2",
+    "pyjwt>=2.10.0",
+    "bcrypt>=4.0.1",
 ]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
