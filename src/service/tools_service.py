@@ -1,8 +1,7 @@
+import asyncio
 from faker import Faker
 import time
-from datetime import date, timedelta
 import bcrypt
-from src.models.user import CreateUserRequest
 from src.service.user_service import UserService
 from src.providers.user_provider import UserProvider
 from src.helpers.logger import logger
@@ -13,12 +12,28 @@ class ToolsService:
         self.user_service = UserService()
         self.user_provider = UserProvider()
         self.fake = Faker("ru_RU")
-        self.batch_size = 1000
         self.default_password = "123456"
+
+        self.max_concurrent_operations = 5
+        self.max_batch_size = 30000
+        
+        # Предгенерируем данные для ускорения
+        self._pregenerated_password = None
+        self._pregenerated_data = {
+            'first_names': [],
+            'last_names': [],
+            'cities': [],
+            'interests': ["спорт", "музыка", "кино", "чтение", "путешествия", 
+                         "готовка", "программирование", "фотография", "танцы", "игры"],
+            'genders': ["male", "female"]
+        }
 
     async def generate_users(self, count: int):
         start_time = time.time()
         logger.info(f"Начинаем генерацию {count} пользователей")
+
+        # Предгенерируем данные
+        self._pregenerate_data()
 
         # Сначала удаляем всех существующих пользователей
         logger.info("Удаляем существующих пользователей")
@@ -28,38 +43,35 @@ class ToolsService:
             f"Существующие пользователи удалены за {time.time() - delete_start:.2f} сек"
         )
 
-        # Генерируем данные для пользователей пакетами
-        total_created = 0
-        while total_created < count:
-            batch_start = time.time()
+        # Создаем семафор для ограничения одновременных операций с БД
+        db_semaphore = asyncio.Semaphore(self.max_concurrent_operations)
+        
+        # Разбиваем на большие пакеты
+        batches = []
+        remaining = count
+        while remaining > 0:
+            batch_size = min(self.max_batch_size, remaining)
+            batches.append(batch_size)
+            remaining -= batch_size
 
-            # Определяем размер текущего пакета
-            current_batch_size = min(self.batch_size, count - total_created)
+        logger.info(f"Создано {len(batches)} пакетов для обработки")
 
-            # Генерируем данные для текущего пакета
-            generate_start = time.time()
-            users_data = await self._generate_users_data(current_batch_size)
-            generate_time = time.time() - generate_start
-
-            # Создаем пользователей текущего пакета
-            db_start = time.time()
-            logger.info(
-                f"Создаем пакет из {current_batch_size}, {len(users_data)} пользователей"
+        # Создаем все задачи сразу
+        tasks = []
+        for i, batch_size in enumerate(batches):
+            task = asyncio.create_task(
+                self._create_batch_optimized(db_semaphore, batch_size, i + 1)
             )
-            await self.user_provider.bulk_create(users_data)
-            db_time = time.time() - db_start
+            tasks.append(task)
 
-            # Обновляем счетчик созданных пользователей
-            total_created += current_batch_size
-
-            # Логируем прогресс
-            batch_time = time.time() - batch_start
-            logger.info(
-                f"Создано {total_created} из {count} пользователей. "
-                f"Время генерации: {generate_time:.2f} сек, "
-                f"Время вставки в БД: {db_time:.2f} сек, "
-                f"Общее время пакета: {batch_time:.2f} сек"
-            )
+        # Выполняем все задачи параллельно
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Проверяем ошибки
+        errors = [r for r in results if isinstance(r, Exception)]
+        if errors:
+            logger.error(f"Ошибки при создании: {errors}")
+            raise Exception(f"Ошибки: {len(errors)} из {len(tasks)}")
 
         total_time = time.time() - start_time
         logger.info(
@@ -67,39 +79,74 @@ class ToolsService:
         )
         return f"Успешно создано {count} пользователей за {total_time:.2f} сек"
 
-    async def _generate_users_data(self, count: int):
-        start_time = time.time()
-        logger.info(f"Генерируем пакет из {count} пользователей")
+    async def _create_batch_optimized(self, semaphore: asyncio.Semaphore, batch_size: int, batch_num: int):
+        """Оптимизированное создание пакета"""
+        async with semaphore:
+            batch_start = time.time()
+            
+            # Быстрая генерация данных
+            users_data = self._generate_users_data_fast(batch_size)
+            
+            # Вставка в БД
+            await self.user_provider.bulk_create(users_data)
+            
+            batch_time = time.time() - batch_start
+            logger.info(f"Пакет №{batch_num} ({batch_size} пользователей) создан за {batch_time:.2f} сек")
+            
+            return batch_size
+        
+    def _pregenerate_data(self):
+        """Предгенерация данных для ускорения создания пользователей"""
+        if not self._pregenerated_password:
+            logger.info("Предгенерируем пароль и данные...")
+            start = time.time()
+            
+            # Генерируем пароль один раз
+            salt = bcrypt.gensalt()
+            self._pregenerated_password = bcrypt.hashpw(self.default_password.encode(), salt).decode()
+            
+            # Предгенерируем списки имен и городов
+            self._pregenerated_data['first_names'] = [self.fake.first_name() for _ in range(1000)]
+            self._pregenerated_data['last_names'] = [self.fake.last_name() for _ in range(1000)]
+            self._pregenerated_data['cities'] = [self.fake.city() for _ in range(200)]
+            
+            logger.info(f"Предгенерация завершена за {time.time() - start:.2f} сек")
+
+
+    def _generate_users_data_fast(self, count: int):
+        """Быстрая генерация данных без лишних вызовов"""
+        import random
+        from datetime import date, timedelta
+        
         users_data = []
-        logger.info("Генерируем пароль")
-        salt = bcrypt.gensalt()
-        password = bcrypt.hashpw(self.default_password.encode(), salt).decode()
-        logger.info(f"Пароль сгенерирован за {time.time() - start_time:.2f} сек")
-
+        
+        # Предгенерированные данные
+        first_names = self._pregenerated_data['first_names']
+        last_names = self._pregenerated_data['last_names'] 
+        cities = self._pregenerated_data['cities']
+        interests = self._pregenerated_data['interests']
+        genders = self._pregenerated_data['genders']
+        password = self._pregenerated_password
+        
+        # Базовая дата для генерации дней рождения
+        today = date.today()
+        min_date = today - timedelta(days=80*365)  # 80 лет назад
+        max_date = today - timedelta(days=18*365)  # 18 лет назад
+        date_range = (max_date - min_date).days
+        
         for _ in range(count):
-            user_data = CreateUserRequest(
-                first_name=self.fake.first_name(),
-                last_name=self.fake.last_name(),
-                birthday=self.fake.date_of_birth(minimum_age=18, maximum_age=80),
-                gender=self.fake.random_element(elements=("male", "female")),
-                interests=self.fake.random_element(
-                    elements=(
-                        "спорт",
-                        "музыка",
-                        "кино",
-                        "чтение",
-                        "путешествия",
-                        "готовка",
-                        "программирование",
-                        "фотография",
-                        "танцы",
-                        "игры",
-                    )
-                ),
-                city=self.fake.city(),
-                password=password,
-            )
-            users_data.append(user_data.model_dump())
-
-        logger.info(f"Пакет сгенерирован за {time.time() - start_time:.2f} сек")
+            # Используем random вместо faker для скорости
+            birthday = min_date + timedelta(days=random.randint(0, date_range))
+            
+            user_data = {
+                "first_name": random.choice(first_names),
+                "last_name": random.choice(last_names),
+                "birthday": birthday,
+                "gender": random.choice(genders),
+                "interests": random.choice(interests),
+                "city": random.choice(cities),
+                "password": password,
+            }
+            users_data.append(user_data)
+        
         return users_data

@@ -15,3 +15,8 @@ async def get_user(user_id: int):
 @users_router.post("/register", response_model=UserObject)
 async def create_user(user: CreateUserRequest):
     return await user_service.create_user(user)
+
+
+@users_router.get("/search")
+async def search_users(first_name: str, last_name: str):
+    return await user_service.search_users_by_first_and_last_names(first_name, last_name)
