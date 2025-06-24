@@ -1,0 +1,269 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "jmeter-load-test",
+    "title": "JMeter Load Testing Dashboard",
+    "tags": ["jmeter", "performance", "load-testing"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "5s",
+    "time": {
+      "from": "now-15m",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Requests per Second",
+        "type": "stat",
+        "targets": [
+          {
+            "query": "SELECT last(\"count\") FROM \"jmeter\" WHERE $timeFilter",
+            "refId": "A",
+            "datasource": "InfluxDB"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "reqps"
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "id": 2,
+        "title": "Average Response Time",
+        "type": "stat",
+        "targets": [
+          {
+            "query": "SELECT last(\"avg\") FROM \"jmeter\" WHERE $timeFilter",
+            "refId": "A",
+            "datasource": "InfluxDB"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds",
+              "thresholds": {
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "yellow", "value": 500},
+                  {"color": "red", "value": 1000}
+                ]
+              }
+            },
+            "unit": "ms"
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 6,
+          "y": 0
+        }
+      },
+      {
+        "id": 3,
+        "title": "Error Rate %",
+        "type": "stat",
+        "targets": [
+          {
+            "query": "SELECT last(\"errorPct\") FROM \"jmeter\" WHERE $timeFilter",
+            "refId": "A",
+            "datasource": "InfluxDB"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds",
+              "thresholds": {
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "yellow", "value": 1},
+                  {"color": "red", "value": 5}
+                ]
+              }
+            },
+            "unit": "percent"
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 12,
+          "y": 0
+        }
+      },
+      {
+        "id": 4,
+        "title": "Active Threads",
+        "type": "stat",
+        "targets": [
+          {
+            "query": "SELECT last(\"allThreads\") FROM \"jmeter\" WHERE $timeFilter",
+            "refId": "A",
+            "datasource": "InfluxDB"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "short"
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 18,
+          "y": 0
+        }
+      },
+      {
+        "id": 5,
+        "title": "Response Time Over Time",
+        "type": "timeseries",
+        "targets": [
+          {
+            "query": "SELECT mean(\"avg\") AS \"Average\", mean(\"min\") AS \"Min\", mean(\"max\") AS \"Max\", mean(\"pct90.0\") AS \"90th Percentile\", mean(\"pct95.0\") AS \"95th Percentile\" FROM \"jmeter\" WHERE $timeFilter GROUP BY time($__interval) fill(null)",
+            "refId": "A",
+            "datasource": "InfluxDB"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "ms"
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 8
+        }
+      },
+      {
+        "id": 6,
+        "title": "Throughput",
+        "type": "timeseries",
+        "targets": [
+          {
+            "query": "SELECT mean(\"count\") AS \"Requests/sec\" FROM \"jmeter\" WHERE $timeFilter GROUP BY time($__interval) fill(null)",
+            "refId": "A",
+            "datasource": "InfluxDB"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "reqps"
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 8
+        }
+      },
+      {
+        "id": 7,
+        "title": "Error Rate Over Time",
+        "type": "timeseries",
+        "targets": [
+          {
+            "query": "SELECT mean(\"errorCount\") AS \"Errors/sec\", mean(\"errorPct\") AS \"Error %\" FROM \"jmeter\" WHERE $timeFilter GROUP BY time($__interval) fill(null)",
+            "refId": "A",
+            "datasource": "InfluxDB"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 16
+        }
+      },
+      {
+        "id": 8,
+        "title": "Active Threads Over Time",
+        "type": "timeseries",
+        "targets": [
+          {
+            "query": "SELECT mean(\"allThreads\") AS \"Active Threads\" FROM \"jmeter\" WHERE $timeFilter GROUP BY time($__interval) fill(null)",
+            "refId": "A",
+            "datasource": "InfluxDB"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "short"
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 16
+        }
+      },
+      {
+        "id": 9,
+        "title": "Response Times by Transaction",
+        "type": "table",
+        "targets": [
+          {
+            "query": "SELECT last(\"avg\") AS \"Average\", last(\"min\") AS \"Min\", last(\"max\") AS \"Max\", last(\"pct90.0\") AS \"90th %\", last(\"pct95.0\") AS \"95th %\" FROM \"jmeter\" WHERE $timeFilter GROUP BY \"transaction\"",
+            "refId": "A",
+            "datasource": "InfluxDB"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 24
+        }
+      }
+    ],
+    "templating": {
+      "list": []
+    },
+    "annotations": {
+      "list": []
+    },
+    "schemaVersion": 30,
+    "version": 1
+  }
+} 

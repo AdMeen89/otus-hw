@@ -7,35 +7,134 @@ services:
     - "5432:5432"
     restart: always
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_DB: otus_hw
+      POSTGRES_USER: otus_hw
+      POSTGRES_PASSWORD: otus_hw
+      # Настройки PostgreSQL для высокой нагрузки
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    command: >
+      postgres
+      -c max_connections=1200
+      -c shared_buffers=1GB
+      -c effective_cache_size=2GB
+      -c maintenance_work_mem=128MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=32MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=8MB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
+      -c max_worker_processes=8
+      -c max_parallel_workers_per_gather=4
+      -c max_parallel_workers=8
+      -c max_parallel_maintenance_workers=4
+      -c log_statement=none
+      -c log_duration=off
+      -c log_min_duration_statement=2000
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U otus_hw -d otus_hw"]
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '2'
+          memory: 2G
 
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    build: .
     ports:
       - "8000:8000"
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=otus_hw
+      - DB_USER=otus_hw
+      - DB_PASSWORD=otus_hw
     depends_on:
       db:
         condition: service_healthy
-    environment:
-      - DB_PATH=${DB_PATH}
-      - SECRET_KEY=${SECRET_KEY}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
     volumes:
       - ./src:/app/src
     restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 2G
+        reservations:
+          cpus: '2'
+          memory: 1G
+    command: >
+      sh -c "
+      cd /app && 
+      uvicorn src.app.app:app 
+      --host 0.0.0.0 
+      --port 8000 
+      --workers 8
+      --worker-class uvicorn.workers.UvicornWorker 
+      --access-log 
+      --log-level warning"
+
+  influxdb:
+    image: influxdb:1.8
+    ports:
+      - "8086:8086"
+    environment:
+      - INFLUXDB_DB=jmeter
+      - INFLUXDB_USER=admin
+      - INFLUXDB_USER_PASSWORD=admin123
+      - INFLUXDB_ADMIN_USER=admin
+      - INFLUXDB_ADMIN_PASSWORD=admin123
+    volumes:
+      - influxdb_data:/var/lib/influxdb
+    restart: always
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - influxdb
+    restart: always
+
+  jmeter:
+    image: justb4/jmeter:latest
+    volumes:
+      - ./load-testing:/tests
+      - ./load-testing/results:/results
+    depends_on:
+      - app
+      - influxdb
+    command: >
+      sh -c "echo 'Waiting for app to be ready...' &&
+             sleep 30 &&
+             jmeter -n -t /tests/load-test.jmx -l /results/results.jtl"
+    profiles:
+      - testing
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
 
 volumes:
   postgres_data:
+  influxdb_data:
+  grafana_data:

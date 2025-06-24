@@ -36,7 +36,7 @@ class UserProvider:
         query = """
         SELECT * FROM otus_hw.users WHERE first_name LIKE :first_name AND last_name LIKE :last_name ORDER BY id ASC;
         """
-        result = await session.execute(text(query), {"first_name": f"%{first_name}%", "last_name": f"%{last_name}%"})
+        result = await session.execute(text(query), {"first_name": f"{first_name}%", "last_name": f"{last_name}%"})
         return result.fetchall()
 
     @connection
