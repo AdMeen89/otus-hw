@@ -1,7 +1,6 @@
 from fastapi import APIRouter
 
 from src.service.tools_service import ToolsService
-from src.database.replication_router import router as db_router
 
 tools_router = APIRouter(prefix="/tools", tags=["Tools"])
 tools_service = ToolsService()
@@ -22,7 +21,7 @@ async def database_health():
 @tools_router.get("/load-balancing/stats")
 async def load_balancing_stats():
     """Статистика балансировки нагрузки между master и slave серверами"""
-    stats = db_router.get_stats()
+    stats = tools_service.get_load_balancing_stats()
     return {
         "message": "Статистика балансировки нагрузки",
         "data": stats,
@@ -40,7 +39,7 @@ async def load_balancing_stats():
 @tools_router.post("/load-balancing/reset-stats")
 async def reset_load_balancing_stats():
     """Сброс статистики балансировки нагрузки"""
-    db_router.reset_stats()
+    tools_service.reset_load_balancing_stats()
     return {
         "message": "Статистика балансировки сброшена",
         "status": "success"
@@ -50,22 +49,4 @@ async def reset_load_balancing_stats():
 @tools_router.post("/load-balancing/test/{count}")
 async def test_load_balancing(count: int = 10):
     """Тестирует балансировку нагрузки выполнением указанного количества read запросов"""
-    import asyncio
-    
-    results = []
-    for i in range(count):
-        try:
-            # Выполняем простой SELECT запрос для тестирования балансировки
-            result = await db_router.fetchval("SELECT 1")
-            results.append({"request": i + 1, "status": "success", "result": result})
-        except Exception as e:
-            results.append({"request": i + 1, "status": "error", "error": str(e)})
-    
-    # Получаем обновленную статистику
-    stats = db_router.get_stats()
-    
-    return {
-        "message": f"Выполнено {count} тестовых read запросов",
-        "test_results": results,
-        "updated_stats": stats
-    }
+    return await tools_service.test_load_balancing(count)

@@ -1,17 +1,13 @@
 import asyncpg
 import threading
 import re
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 from contextlib import asynccontextmanager
 from src.helpers.logger import logger
 from src.helpers.settings import settings
 
 
 class ReplicationRoutingDataSource:
-    """
-    DataSource роутер для автоматического выбора между master и slave
-    на основе типа SQL операции с round-robin балансировкой
-    """
     
     def __init__(self):
         # Конвертируем SQLAlchemy URL в asyncpg URL
@@ -30,14 +26,7 @@ class ReplicationRoutingDataSource:
         
         logger.info(f"🔄 Initialized replication router with {len(self.slave_urls)} slaves")
         
-    def _convert_url(self, sqlalchemy_url: str) -> str:
-        """Конвертирует SQLAlchemy URL в asyncpg URL"""
-        if sqlalchemy_url.startswith("postgresql+asyncpg://"):
-            return sqlalchemy_url.replace("postgresql+asyncpg://", "postgresql://")
-        return sqlalchemy_url
-        
     async def initialize(self):
-        """Инициализация пулов соединений"""
         try:
             # Создаем пул для мастера
             self._master_pool = await asyncpg.create_pool(
@@ -67,7 +56,6 @@ class ReplicationRoutingDataSource:
             raise
     
     async def close(self):
-        """Закрытие всех пулов"""
         if self._master_pool:
             await self._master_pool.close()
             
@@ -75,76 +63,8 @@ class ReplicationRoutingDataSource:
             if pool:
                 await pool.close()
     
-    def _is_read_operation(self, query: str) -> bool:
-        """Определяет является ли операция read-only"""
-        # Убираем комментарии и лишние пробелы
-        clean_query = re.sub(r'--.*?\n|/\*.*?\*/', '', query, flags=re.DOTALL)
-        clean_query = clean_query.strip().upper()
-        
-        # Проверяем что это SELECT запрос
-        if clean_query.startswith('SELECT'):
-            # Исключаем SELECT FOR UPDATE/SHARE
-            if 'FOR UPDATE' in clean_query or 'FOR SHARE' in clean_query:
-                return False
-            return True
-            
-        # SHOW, EXPLAIN также считаем read операциями
-        if clean_query.startswith(('SHOW', 'EXPLAIN')):
-            return True
-            
-        return False
-    
-    def _get_next_slave_pool(self) -> tuple[Optional[asyncpg.Pool], int]:
-        """
-        Получает следующий слейв пул по round-robin алгоритму
-        Возвращает (pool, index) или (None, -1) если нет здоровых слейвов
-        """
-        if not self.slave_urls:
-            return None, -1
-        
-        with self._lock:
-            # Ищем здоровые слейвы, начиная с текущего индекса
-            attempts = 0
-            original_index = self._current_slave_index
-            
-            while attempts < len(self.slave_urls):
-                current_index = self._current_slave_index
-                pool = self._slave_pools[current_index]
-                
-                # Переходим к следующему слейву для следующего запроса
-                self._current_slave_index = (self._current_slave_index + 1) % len(self.slave_urls)
-                
-                if pool is not None:
-                    # Увеличиваем счетчик обращений к этому слейву
-                    self._slave_access_counts[current_index] += 1
-                    logger.debug(f"🎯 Selected slave {current_index+1}/{len(self.slave_urls)} for read operation (round-robin)")
-                    return pool, current_index
-                
-                attempts += 1
-            
-            # Все слейвы недоступны
-            return None, -1
-    
-    def _increment_master_access(self):
-        """Увеличивает счетчик обращений к мастеру (thread-safe)"""
-        with self._lock:
-            self._master_access_count += 1
-    
-    def _increment_slave_failure(self, slave_index: int):
-        """Увеличивает счетчик ошибок слейва (thread-safe)"""
-        if 0 <= slave_index < len(self._slave_failures):
-            with self._lock:
-                self._slave_failures[slave_index] += 1
-
     @asynccontextmanager
     async def get_connection(self, query: str = "", force_master: bool = False):
-        """
-        Получает соединение на основе типа операции
-        
-        Args:
-            query: SQL запрос для анализа
-            force_master: Принудительно использовать master (для транзакций)
-        """
         use_master = force_master or not self._is_read_operation(query)
         
         if use_master:
@@ -183,7 +103,6 @@ class ReplicationRoutingDataSource:
     
     @asynccontextmanager 
     async def get_transaction(self):
-        """Получает транзакционное соединение (всегда master)"""
         if not self._master_pool:
             raise RuntimeError("Master pool not initialized")
         
@@ -194,59 +113,86 @@ class ReplicationRoutingDataSource:
                 yield connection
     
     async def execute(self, query: str, *args, **kwargs):
-        """Выполняет запрос с автоматическим роутингом"""
         async with self.get_connection(query) as conn:
             return await conn.execute(query, *args, **kwargs)
     
     async def fetch(self, query: str, *args, **kwargs):
-        """Выполняет SELECT запрос с автоматическим роутингом"""
         async with self.get_connection(query) as conn:
             return await conn.fetch(query, *args, **kwargs)
     
     async def fetchrow(self, query: str, *args, **kwargs):
-        """Выполняет SELECT запрос и возвращает одну строку"""
         async with self.get_connection(query) as conn:
             return await conn.fetchrow(query, *args, **kwargs)
     
     async def fetchval(self, query: str, *args, **kwargs):
-        """Выполняет SELECT запрос и возвращает одно значение"""
         async with self.get_connection(query) as conn:
             return await conn.fetchval(query, *args, **kwargs)
+
+    # === URL CONVERSION ===
     
-    def get_stats(self) -> Dict[str, Any]:
-        """Возвращает статистику использования пулов"""
-        with self._lock:
-            total_requests = self._master_access_count + sum(self._slave_access_counts)
-            
-            stats = {
-                "total_requests": total_requests,
-                "master": {
-                    "requests": self._master_access_count,
-                    "percentage": round(self._master_access_count / max(total_requests, 1) * 100, 2)
-                },
-                "slaves": []
-            }
-            
-            for i, (requests, failures) in enumerate(zip(self._slave_access_counts, self._slave_failures)):
-                slave_stats = {
-                    "index": i + 1,
-                    "url": self.slave_urls[i],
-                    "requests": requests,
-                    "failures": failures,
-                    "percentage": round(requests / max(total_requests, 1) * 100, 2),
-                    "healthy": self._slave_pools[i] is not None
-                }
-                stats["slaves"].append(slave_stats)
-            
-            return stats
+    def _convert_url(self, sqlalchemy_url: str) -> str:
+        if sqlalchemy_url.startswith("postgresql+asyncpg://"):
+            return sqlalchemy_url.replace("postgresql+asyncpg://", "postgresql://")
+        return sqlalchemy_url
     
-    def reset_stats(self):
-        """Сбрасывает статистику"""
+    # === OPERATION ANALYSIS ===
+    
+    def _is_read_operation(self, query: str) -> bool:
+        # Убираем комментарии и лишние пробелы
+        clean_query = re.sub(r'--.*?\n|/\*.*?\*/', '', query, flags=re.DOTALL)
+        clean_query = clean_query.strip().upper()
+        
+        # Проверяем что это SELECT запрос
+        if clean_query.startswith('SELECT'):
+            # Исключаем SELECT FOR UPDATE/SHARE
+            if 'FOR UPDATE' in clean_query or 'FOR SHARE' in clean_query:
+                return False
+            return True
+            
+        # SHOW, EXPLAIN также считаем read операциями
+        if clean_query.startswith(('SHOW', 'EXPLAIN')):
+            return True
+            
+        return False
+    
+    # === LOAD BALANCING ===
+    
+    def _get_next_slave_pool(self) -> tuple[Optional[asyncpg.Pool], int]:
+        if not self.slave_urls:
+            return None, -1
+        
         with self._lock:
-            self._master_access_count = 0
-            self._slave_access_counts = [0] * len(self.slave_urls)
-            self._slave_failures = [0] * len(self.slave_urls)
-        logger.info("📊 Statistics reset")
+            # Ищем здоровые слейвы, начиная с текущего индекса
+            attempts = 0
+            
+            while attempts < len(self.slave_urls):
+                current_index = self._current_slave_index
+                pool = self._slave_pools[current_index]
+                
+                # Переходим к следующему слейву для следующего запроса
+                self._current_slave_index = (self._current_slave_index + 1) % len(self.slave_urls)
+                
+                if pool is not None:
+                    # Увеличиваем счетчик обращений к этому слейву
+                    self._slave_access_counts[current_index] += 1
+                    logger.debug(f"🎯 Selected slave {current_index+1}/{len(self.slave_urls)} for read operation (round-robin)")
+                    return pool, current_index
+                
+                attempts += 1
+            
+            # Все слейвы недоступны
+            return None, -1
+    
+    # === STATISTICS TRACKING ===
+    
+    def _increment_master_access(self):
+        with self._lock:
+            self._master_access_count += 1
+    
+    def _increment_slave_failure(self, slave_index: int):
+        if 0 <= slave_index < len(self._slave_failures):
+            with self._lock:
+                self._slave_failures[slave_index] += 1
 
 
 # Глобальный экземпляр роутера
