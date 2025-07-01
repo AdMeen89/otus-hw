@@ -1,168 +1,125 @@
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from functools import wraps
-import logging
-
-from src.helpers.settings import app_settings
-
-logger = logging.getLogger(__name__)
-
-print(f"Master DB URL: {app_settings.db_master_url}")
-print(f"Slave DB URL: {app_settings.db_slave_url}")
-
-# Настройки пула соединений
-POOL_CONFIG = {
-    "echo": False,
-    "pool_size": 75,         # Уменьшили для каждого движка
-    "max_overflow": 175,     # Суммарно 250 на каждый движок
-    "pool_timeout": 90,
-    "pool_recycle": 1800,
-    "pool_pre_ping": True,
-    "connect_args": {
-        "server_settings": {
-            "application_name": "otus_hw_app",
-            "jit": "off",
-        },
-        "command_timeout": 60,
-    }
-}
-
-# Движок для мастера (запись)
-master_engine = create_async_engine(app_settings.db_master_url, **POOL_CONFIG)
-
-# Движок для слейвов (чтение)
-slave_engine = create_async_engine(app_settings.db_slave_url, **POOL_CONFIG)
-
-# Сессии
-master_session_maker = async_sessionmaker(
-    bind=master_engine, 
-    expire_on_commit=False,
-    autoflush=False,
-    autocommit=False
-)
-
-slave_session_maker = async_sessionmaker(
-    bind=slave_engine, 
-    expire_on_commit=False,
-    autoflush=False,
-    autocommit=False
-)
-
-# Обратная совместимость
-engine = master_engine
-async_session_maker = master_session_maker
+from src.database.replication_router import router
+from src.helpers.logger import logger
 
 
-def write_connection(method):
-    """Декоратор для операций записи (INSERT, UPDATE, DELETE) - использует мастер"""
-    @wraps(method)
+async def init_database():
+    """Инициализация роутера базы данных"""
+    await router.initialize()
+    logger.info("🔄 Database router initialized")
+
+
+async def close_database():
+    """Закрытие роутера базы данных"""
+    await router.close()
+    logger.info("❌ Database router closed")
+
+
+def with_router(func):
+    """
+    Декоратор для автоматического роутинга запросов.
+    Анализирует SQL и направляет на master или slave.
+    """
+    @wraps(func)
     async def wrapper(*args, **kwargs):
-        async with master_session_maker() as session:
-            try:
-                result = await method(*args, session=session, **kwargs)
-                await session.commit()
-                return result
-            except Exception as e:
-                await session.rollback()
-                logger.error(f"Write operation failed: {e}")
-                raise e
-            finally:
-                await session.close()
+        return await func(*args, **kwargs)
     return wrapper
 
 
-def read_connection(method):
-    """Декоратор для операций чтения (SELECT) - использует слейвы"""
-    @wraps(method)
+def with_transaction(func):
+    """
+    Декоратор для транзакционных операций.
+    Всегда использует master с транзакцией.
+    """
+    @wraps(func)
     async def wrapper(*args, **kwargs):
-        async with slave_session_maker() as session:
-            try:
-                return await method(*args, session=session, **kwargs)
-            except Exception as e:
-                # При ошибке на слейве пробуем мастер
-                logger.warning(f"Read from slave failed, trying master: {e}")
-                async with master_session_maker() as master_session:
-                    try:
-                        return await method(*args, session=master_session, **kwargs)
-                    except Exception as master_e:
-                        logger.error(f"Read from master also failed: {master_e}")
-                        raise master_e
-                    finally:
-                        await master_session.close()
-            finally:
-                await session.close()
+        async with router.get_transaction() as connection:
+            return await func(connection, *args, **kwargs)
     return wrapper
 
 
-def connection(method):
-    """Универсальный декоратор (обратная совместимость) - использует мастер"""
-    @wraps(method)
+def read_operation(func):
+    """
+    Декоратор для операций чтения.
+    Использует slave с fallback на master.
+    """
+    @wraps(func)
     async def wrapper(*args, **kwargs):
-        async with master_session_maker() as session:
-            try:
-                return await method(*args, session=session, **kwargs)
-            except Exception as e:
-                await session.rollback()
-                logger.error(f"Database operation failed: {e}")
-                raise e
-            finally:
-                await session.close()
+        # Для read операций используем пустой query, чтобы роутер выбрал slave
+        async with router.get_connection("SELECT", force_master=False) as connection:
+            return await func(connection, *args, **kwargs)
     return wrapper
 
 
-def transaction(method):
-    """Декоратор для транзакций - всегда использует мастер"""
-    @wraps(method)
+def write_operation(func):
+    """
+    Декоратор для операций записи.
+    Всегда использует master.
+    """
+    @wraps(func)
     async def wrapper(*args, **kwargs):
-        async with master_session_maker() as session:
-            try:
-                result = await method(*args, session=session, **kwargs)
-                await session.commit()
-                return result
-            except Exception as e:
-                await session.rollback()
-                logger.error(f"Transaction failed: {e}")
-                raise e
-            finally:
-                await session.close()
+        async with router.get_connection("INSERT", force_master=True) as connection:
+            return await func(connection, *args, **kwargs)
     return wrapper
 
 
-# Утилитарные функции
-async def get_master_session():
-    """Получить сессию мастера для прямого использования"""
-    return master_session_maker()
+# Для обратной совместимости со старым кодом
+read_connection = read_operation
+write_connection = write_operation
+transaction = with_transaction
 
 
-async def get_slave_session():
-    """Получить сессию слейва для прямого использования"""
-    return slave_session_maker()
-
-
-async def health_check():
-    """Проверка здоровья подключений к БД"""
+async def get_database_health():
+    """Проверка здоровья всех подключений"""
+    # Динамически определяем количество слейвов
+    num_slaves = len(router._slave_pools) if router._slave_pools else 0
+    
     health_status = {
-        "master": {"status": "unknown", "error": None},
-        "slave": {"status": "unknown", "error": None}
+        "overall_status": "healthy",
+        "databases": {
+            "master": {"status": "unknown", "error": None}
+        },
+        "details": {
+            "master": "Подключение для записи (INSERT, UPDATE, DELETE)"
+        }
     }
     
-    # Проверка мастера
-    try:
-        async with master_session_maker() as session:
-            from sqlalchemy import text
-            await session.execute(text("SELECT 1"))
-            health_status["master"]["status"] = "healthy"
-    except Exception as e:
-        health_status["master"]["status"] = "unhealthy"
-        health_status["master"]["error"] = str(e)
+    # Добавляем слейвы динамически
+    for i in range(num_slaves):
+        slave_key = f"slave{i+1}"
+        health_status["databases"][slave_key] = {"status": "unknown", "error": None}
+        health_status["details"][slave_key] = "Подключение для чтения (SELECT)"
     
-    # Проверка слейва
+    # Проверяем master
     try:
-        async with slave_session_maker() as session:
-            from sqlalchemy import text
-            await session.execute(text("SELECT 1"))
-            health_status["slave"]["status"] = "healthy"
+        async with router.get_connection("INSERT", force_master=True) as conn:
+            await conn.fetchval("SELECT 1")
+        health_status["databases"]["master"]["status"] = "healthy"
     except Exception as e:
-        health_status["slave"]["status"] = "unhealthy"
-        health_status["slave"]["error"] = str(e)
+        health_status["databases"]["master"]["status"] = "unhealthy"
+        health_status["databases"]["master"]["error"] = str(e)
+        health_status["overall_status"] = "degraded"
+    
+    # Проверяем слейвы
+    for i, slave_pool in enumerate(router._slave_pools):
+        slave_key = f"slave{i+1}"
+        if slave_pool is None:
+            health_status["databases"][slave_key]["status"] = "unavailable"
+            health_status["databases"][slave_key]["error"] = "Pool not initialized"
+            continue
+            
+        try:
+            async with slave_pool.acquire() as conn:
+                await conn.fetchval("SELECT 1")
+            health_status["databases"][slave_key]["status"] = "healthy"
+        except Exception as e:
+            health_status["databases"][slave_key]["status"] = "unhealthy"
+            health_status["databases"][slave_key]["error"] = str(e)
+            if health_status["overall_status"] == "healthy":
+                health_status["overall_status"] = "degraded"
+    
+    # Если master недоступен - статус critical
+    if health_status["databases"]["master"]["status"] != "healthy":
+        health_status["overall_status"] = "critical"
     
     return health_status

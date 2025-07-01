@@ -206,35 +206,35 @@ services:
           cpus: '1'
           memory: 1G
 
-  # HAProxy Load Balancer for read queries
-  postgres-lb:
-    image: haproxy:2.6
-    container_name: postgres-lb
-    ports:
-      - "5435:5432"  # Read queries load balancer
-      - "8080:8080"  # HAProxy stats
-    volumes:
-      - ./replication/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
-    depends_on:
-      - postgres-master
-      - postgres-slave1
-      - postgres-slave2
-    networks:
-      - postgres_replication
-    restart: always
-
-  # Application
+  # FastAPI Application
   app:
     build: .
+    container_name: otus-hw-app
     ports:
       - "8000:8000"
+    restart: always
     environment:
-      - DB_MASTER_HOST=postgres-master
-      - DB_SLAVE_HOST=postgres-lb
-      - DB_PORT=5432
-      - DB_NAME=otus_hw
-      - DB_USER=otus_hw
-      - DB_PASSWORD=otus_hw
+      # Master database (для записи)
+      DB_MASTER_HOST: postgres-master
+      DB_MASTER_PORT: 5432
+      DB_MASTER_NAME: otus_hw
+      DB_MASTER_USER: otus_hw
+      DB_MASTER_PASSWORD: otus_hw
+      
+      # Slave databases (для чтения) - возвращаемся к 2 слейвам
+      DB_SLAVE1_HOST: postgres-slave1
+      DB_SLAVE1_PORT: 5432
+      DB_SLAVE1_NAME: otus_hw
+      DB_SLAVE1_USER: otus_hw
+      DB_SLAVE1_PASSWORD: otus_hw
+      
+      DB_SLAVE2_HOST: postgres-slave2
+      DB_SLAVE2_PORT: 5432
+      DB_SLAVE2_NAME: otus_hw
+      DB_SLAVE2_USER: otus_hw
+      DB_SLAVE2_PASSWORD: otus_hw
+      
+      SECRET_KEY: your-secret-key-here
     depends_on:
       postgres-master:
         condition: service_healthy
@@ -242,29 +242,16 @@ services:
         condition: service_healthy
       postgres-slave2:
         condition: service_healthy
-    volumes:
-      - ./src:/app/src
     networks:
       - postgres_replication
-    restart: always
     deploy:
       resources:
         limits:
-          cpus: '4'
-          memory: 2G
-        reservations:
           cpus: '2'
           memory: 1G
-    command: >
-      sh -c "
-      cd /app && 
-      uvicorn src.app.app:app 
-      --host 0.0.0.0 
-      --port 8000 
-      --workers 8
-      --worker-class uvicorn.workers.UvicornWorker 
-      --access-log 
-      --log-level warning"
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   # Grafana for monitoring
   grafana:

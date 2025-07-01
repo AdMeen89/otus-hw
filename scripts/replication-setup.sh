@@ -102,12 +102,16 @@ function check_replication_status() {
         print_error "❌ Слейв 2 недоступен"
     fi
     
-    # Проверка HAProxy
-    print_status "Проверка HAProxy балансировщика..."
-    if curl -s http://localhost:8080/stats >/dev/null 2>&1; then
-        print_success "✅ HAProxy доступен: http://localhost:8080/stats"
+    # Проверка приложения с ReplicationRoutingDataSource
+    print_status "Проверка приложения и роутера баз данных..."
+    if curl -s http://localhost:8000/api/v1/tools/health/db >/dev/null 2>&1; then
+        print_success "✅ Приложение и роутер доступны"
+        
+        # Показываем статус health check
+        echo "Статус подключений к базам:"
+        curl -s http://localhost:8000/api/v1/tools/health/db | jq -r '.databases | to_entries[] | "  \(.key): \(.value.status)"' 2>/dev/null || echo "  (не удалось получить детали)"
     else
-        print_error "❌ HAProxy недоступен"
+        print_error "❌ Приложение недоступно"
     fi
     
     echo
@@ -115,10 +119,14 @@ function check_replication_status() {
     echo "📊 Мастер (запись):     localhost:5432"
     echo "📖 Слейв 1 (чтение):   localhost:5433"
     echo "📖 Слейв 2 (чтение):   localhost:5434"
-    echo "⚖️  HAProxy (чтение):   localhost:5435"
-    echo "🔧 HAProxy статистика: http://localhost:8080/stats"
     echo "🎯 Приложение:         http://localhost:8000"
+    echo "🏥 Health Check:       http://localhost:8000/api/v1/tools/health/db"
     echo "📈 Grafana:            http://localhost:3000"
+    echo
+    echo "🤖 ReplicationRoutingDataSource автоматически направляет:"
+    echo "   • SELECT запросы → случайный слейв (с fallback на мастер)"
+    echo "   • INSERT/UPDATE/DELETE → мастер"
+    echo "   • Транзакции → мастер"
 }
 
 function test_replication() {
@@ -169,7 +177,7 @@ function show_logs() {
     local service=$1
     if [ -z "$service" ]; then
         echo "Доступные сервисы:"
-        echo "  master, slave1, slave2, haproxy, app"
+        echo "  master, slave1, slave2, app, grafana"
         echo "Использование: $0 logs <service>"
         return
     fi
@@ -184,11 +192,11 @@ function show_logs() {
         slave2)
             docker-compose -f docker-compose-replication.yml logs -f postgres-slave2
             ;;
-        haproxy)
-            docker-compose -f docker-compose-replication.yml logs -f postgres-lb
-            ;;
         app)
             docker-compose -f docker-compose-replication.yml logs -f app
+            ;;
+        grafana)
+            docker-compose -f docker-compose-replication.yml logs -f grafana
             ;;
         *)
             print_error "Неизвестный сервис: $service"

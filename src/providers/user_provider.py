@@ -1,46 +1,66 @@
-from sqlalchemy import text
-from src.database.connection import read_connection, write_connection, transaction
-from sqlalchemy.ext.asyncio import AsyncSession
+from src.database.replication_router import router
 
 
 class UserProvider:
-    @write_connection
-    async def create(self, data: dict, session: AsyncSession):
+    
+    async def create(self, data: dict):
+        """Создание пользователя (используется master)"""
         query = """
         INSERT INTO otus_hw.users (first_name, password_hash, last_name, birthday, gender, interests, city) 
-        VALUES (:first_name, :password, :last_name, :birthday, :gender, :interests, :city) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7) 
         RETURNING *;
         """
-        result = await session.execute(text(query), data)
-        return result.fetchone()
+        async with router.get_connection(query, force_master=True) as conn:
+            return await conn.fetchrow(
+                query,
+                data["first_name"],
+                data["password"],
+                data["last_name"],
+                data["birthday"],
+                data["gender"],
+                data["interests"],
+                data["city"]
+            )
 
-    @read_connection
-    async def get_by_id(self, user_id: int, session: AsyncSession):
+    async def get_by_id(self, user_id: int):
+        """Получение пользователя по ID (используется slave)"""
         query = """
-        SELECT * FROM otus_hw.users WHERE id = :user_id LIMIT 1;
+        SELECT * FROM otus_hw.users WHERE id = $1 LIMIT 1;
         """
-        result = await session.execute(text(query), {"user_id": user_id})
-        return result.fetchone()
+        async with router.get_connection(query) as conn:
+            return await conn.fetchrow(query, user_id)
     
-    @write_connection
-    async def delete_all(self, session: AsyncSession):
+    async def delete_all(self):
+        """Удаление всех пользователей (используется master)"""
         query = """
         DELETE FROM otus_hw.users;
         """
-        await session.execute(text(query))
+        async with router.get_connection(query, force_master=True) as conn:
+            await conn.execute(query)
 
-    @read_connection
-    async def search_by_first_and_last_names(self, first_name: str, last_name: str, session: AsyncSession):
+    async def search_by_first_and_last_names(self, first_name: str, last_name: str):
+        """Поиск пользователей по имени и фамилии (используется slave)"""
         query = """
-        SELECT * FROM otus_hw.users WHERE first_name LIKE :first_name AND last_name LIKE :last_name ORDER BY id ASC;
+        SELECT * FROM otus_hw.users WHERE first_name LIKE $1 AND last_name LIKE $2 ORDER BY id ASC;
         """
-        result = await session.execute(text(query), {"first_name": f"{first_name}%", "last_name": f"{last_name}%"})
-        return result.fetchall()
+        async with router.get_connection(query) as conn:
+            return await conn.fetch(query, f"{first_name}%", f"{last_name}%")
 
-    @transaction
-    async def bulk_create(self, data: list[dict], session: AsyncSession):
+    async def bulk_create(self, data: list[dict]):
+        """Массовое создание пользователей в транзакции (используется master)"""
         query = """
         INSERT INTO otus_hw.users (first_name, password_hash, last_name, birthday, gender, interests, city) 
-        VALUES (:first_name, :password, :last_name, :birthday, :gender, :interests, :city);
+        VALUES ($1, $2, $3, $4, $5, $6, $7);
         """
-        await session.execute(text(query), data)
+        async with router.get_transaction() as conn:
+            for user_data in data:
+                await conn.execute(
+                    query,
+                    user_data["first_name"],
+                    user_data["password"],
+                    user_data["last_name"],
+                    user_data["birthday"],
+                    user_data["gender"],
+                    user_data["interests"],
+                    user_data["city"]
+                )
