@@ -15,10 +15,10 @@ services:
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
     volumes:
       - postgres_master_data:/var/lib/postgresql/data
-      - ./migrations:/docker-entrypoint-initdb.d
-      - ./replication/master-init.sql:/docker-entrypoint-initdb.d/99-replication.sql
-      - ./replication/pg_hba.conf:/usr/share/postgresql/14/pg_hba.conf.sample
-      - ./replication/master-setup.sh:/docker-entrypoint-initdb.d/98-master-setup.sh
+      - ./migrations:/docker-entrypoint-initdb.d/migrations
+      - ./replication/master-init.sql:/docker-entrypoint-initdb.d/master-init.sql
+      - ./replication/setup-replication.sh:/docker-entrypoint-initdb.d/setup-replication.sh
+      - ./replication/pg_hba.conf:/docker-entrypoint-initdb.d/pg_hba.conf
     command: >
       postgres
       -c wal_level=replica
