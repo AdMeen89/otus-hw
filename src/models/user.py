@@ -3,24 +3,22 @@ from pydantic import BaseModel
 
 from src.models.mixins import PasswordHashMixin
 
+class User(BaseModel):
+    first_name: str
+    last_name: str
+    birthday: date
+    gender: str
+    interests: str
+    city: str
 
-class CreateUserRequest(BaseModel, PasswordHashMixin):
+class CreateUserRequest(User):
     password: str
-    first_name: str
-    last_name: str
-    birthday: date
-    gender: str
-    interests: str
-    city: str
+
+class CreateUserResponseAutoPassword(CreateUserRequest, PasswordHashMixin):
+    pass
 
 
-class UserObject(BaseModel):
+class UserObject(User):
     id: int
-    first_name: str
-    last_name: str
-    birthday: date
-    gender: str
-    interests: str
-    city: str
     created_at: datetime
     updated_at: datetime
