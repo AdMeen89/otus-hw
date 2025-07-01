@@ -12,3 +12,5 @@ CREATE TABLE IF NOT EXISTS otus_hw.users (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX idx_users_names_pattern ON users (first_name text_pattern_ops, last_name text_pattern_ops);
