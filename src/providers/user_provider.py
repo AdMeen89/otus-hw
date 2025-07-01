@@ -2,9 +2,7 @@ from src.database.replication_router import router
 
 
 class UserProvider:
-    
     async def create(self, data: dict):
-        """Создание пользователя (используется master)"""
         query = """
         INSERT INTO otus_hw.users (first_name, password_hash, last_name, birthday, gender, interests, city) 
         VALUES ($1, $2, $3, $4, $5, $6, $7) 
@@ -23,7 +21,6 @@ class UserProvider:
             )
 
     async def get_by_id(self, user_id: int):
-        """Получение пользователя по ID (используется slave)"""
         query = """
         SELECT * FROM otus_hw.users WHERE id = $1 LIMIT 1;
         """
@@ -31,7 +28,6 @@ class UserProvider:
             return await conn.fetchrow(query, user_id)
     
     async def delete_all(self):
-        """Удаление всех пользователей (используется master)"""
         query = """
         DELETE FROM otus_hw.users;
         """
@@ -39,7 +35,6 @@ class UserProvider:
             await conn.execute(query)
 
     async def search_by_first_and_last_names(self, first_name: str, last_name: str):
-        """Поиск пользователей по имени и фамилии (используется slave)"""
         query = """
         SELECT * FROM otus_hw.users WHERE first_name LIKE $1 AND last_name LIKE $2 ORDER BY id ASC;
         """
@@ -47,7 +42,6 @@ class UserProvider:
             return await conn.fetch(query, f"{first_name}%", f"{last_name}%")
 
     async def bulk_create(self, data: list[dict]):
-        """Массовое создание пользователей в транзакции (используется master)"""
         query = """
         INSERT INTO otus_hw.users (first_name, password_hash, last_name, birthday, gender, interests, city) 
         VALUES ($1, $2, $3, $4, $5, $6, $7);
