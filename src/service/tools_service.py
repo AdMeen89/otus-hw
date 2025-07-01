@@ -5,6 +5,7 @@ import bcrypt
 from src.service.user_service import UserService
 from src.providers.user_provider import UserProvider
 from src.helpers.logger import logger
+from src.database.replication_router import router as db_router
 
 
 class ToolsService:
@@ -27,6 +28,51 @@ class ToolsService:
                          "готовка", "программирование", "фотография", "танцы", "игры"],
             'genders': ["male", "female"]
         }
+
+    async def get_database_health(self):
+        num_slaves = len(db_router._slave_pools) if db_router._slave_pools else 0
+        
+        health_status = {
+            "overall_status": "healthy",
+            "databases": {"master": {"status": "unknown", "error": None}},
+            "details": {"master": "Подключение для записи (INSERT, UPDATE, DELETE)"}
+        }
+        
+        for i in range(num_slaves):
+            slave_key = f"slave{i+1}"
+            health_status["databases"][slave_key] = {"status": "unknown", "error": None}
+            health_status["details"][slave_key] = "Подключение для чтения (SELECT)"
+        
+        try:
+            async with db_router.get_connection("INSERT", force_master=True) as conn:
+                await conn.fetchval("SELECT 1")
+            health_status["databases"]["master"]["status"] = "healthy"
+        except Exception as e:
+            health_status["databases"]["master"]["status"] = "unhealthy"
+            health_status["databases"]["master"]["error"] = str(e)
+            health_status["overall_status"] = "degraded"
+        
+        for i, slave_pool in enumerate(db_router._slave_pools):
+            slave_key = f"slave{i+1}"
+            if slave_pool is None:
+                health_status["databases"][slave_key]["status"] = "unavailable"
+                health_status["databases"][slave_key]["error"] = "Pool not initialized"
+                continue
+                
+            try:
+                async with slave_pool.acquire() as conn:
+                    await conn.fetchval("SELECT 1")
+                health_status["databases"][slave_key]["status"] = "healthy"
+            except Exception as e:
+                health_status["databases"][slave_key]["status"] = "unhealthy"
+                health_status["databases"][slave_key]["error"] = str(e)
+                if health_status["overall_status"] == "healthy":
+                    health_status["overall_status"] = "degraded"
+        
+        if health_status["databases"]["master"]["status"] != "healthy":
+            health_status["overall_status"] = "critical"
+        
+        return health_status
 
     async def generate_users(self, count: int):
         start_time = time.time()

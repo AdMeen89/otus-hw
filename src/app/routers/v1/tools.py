@@ -1,7 +1,6 @@
 from fastapi import APIRouter
 
 from src.service.tools_service import ToolsService
-from src.database.connection import get_database_health
 from src.database.replication_router import router as db_router
 
 tools_router = APIRouter(prefix="/tools", tags=["Tools"])
@@ -17,7 +16,7 @@ async def generate_users(count: int):
 @tools_router.get("/health/db")
 async def database_health():
     """Проверка состояния подключений к master и slave базам данных"""
-    return await get_database_health()
+    return await tools_service.get_database_health()
 
 
 @tools_router.get("/load-balancing/stats")
