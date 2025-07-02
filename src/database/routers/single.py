@@ -2,9 +2,17 @@ import asyncpg
 from contextlib import asynccontextmanager
 from src.helpers.settings import settings
 from src.helpers.logger import logger
+from .base import RoutingDataSource
 
 
-class SingleDatabaseRouter:
+class SingleDatabaseRouter(RoutingDataSource):
+    """
+    Роутер для работы с одной базой данных.
+    
+    Все запросы (read и write) направляются на одну базу данных.
+    Используется когда репликация не настроена или не требуется.
+    """
+    
     def __init__(self):
         self._pool = None
         self._master_url = settings.DATABASE_URL
@@ -59,7 +67,4 @@ class SingleDatabaseRouter:
                     "url": display_url,
                     "error": str(e)
                 }
-            }
-
-
-router = SingleDatabaseRouter() 
+            } 

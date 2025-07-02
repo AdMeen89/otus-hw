@@ -5,9 +5,17 @@ from typing import Optional, List
 from contextlib import asynccontextmanager
 from src.helpers.logger import logger
 from src.helpers.settings import settings
+from .base import RoutingDataSource
 
 
-class ReplicationRoutingDataSource:
+class ReplicationRoutingDataSource(RoutingDataSource):
+    """
+    Роутер для работы с репликацией PostgreSQL.
+    
+    Автоматически направляет read-запросы на slave серверы по round-robin алгоритму,
+    а write-запросы и транзакции на master сервер. При недоступности slave серверов
+    автоматически переключается на master.
+    """
     
     def __init__(self):
         # Конвертируем SQLAlchemy URL в asyncpg URL
@@ -111,22 +119,6 @@ class ReplicationRoutingDataSource:
             async with connection.transaction():
                 logger.debug("🔄 Transaction started on MASTER")
                 yield connection
-    
-    async def execute(self, query: str, *args, **kwargs):
-        async with self.get_connection(query) as conn:
-            return await conn.execute(query, *args, **kwargs)
-    
-    async def fetch(self, query: str, *args, **kwargs):
-        async with self.get_connection(query) as conn:
-            return await conn.fetch(query, *args, **kwargs)
-    
-    async def fetchrow(self, query: str, *args, **kwargs):
-        async with self.get_connection(query) as conn:
-            return await conn.fetchrow(query, *args, **kwargs)
-    
-    async def fetchval(self, query: str, *args, **kwargs):
-        async with self.get_connection(query) as conn:
-            return await conn.fetchval(query, *args, **kwargs)
 
     # === URL CONVERSION ===
     
@@ -192,8 +184,4 @@ class ReplicationRoutingDataSource:
     def _increment_slave_failure(self, slave_index: int):
         if 0 <= slave_index < len(self._slave_failures):
             with self._lock:
-                self._slave_failures[slave_index] += 1
-
-
-# Глобальный экземпляр роутера
-router = ReplicationRoutingDataSource() 
+                self._slave_failures[slave_index] += 1 
