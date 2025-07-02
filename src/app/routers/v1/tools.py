@@ -12,6 +12,6 @@ async def get_database_health():
 
 
 @router.post("/generate-users/{count}")
-async def generate_users(count: int):
-    result = await tools_service.generate_users(count)
+async def generate_users(count: int, use_selectivity: bool = False):
+    result = await tools_service.generate_users(count, use_selectivity)
     return {"message": result}

@@ -1,4 +1,5 @@
 import asyncio
+import random
 from faker import Faker
 import time
 import bcrypt
@@ -19,6 +20,35 @@ class ToolsService:
         self.max_batch_size = 30000
         
         self._pregenerated_password = None
+        # Популярные имена и фамилии (высокочастотные для РФ)
+        self.popular_male_names = [
+            'Александр', 'Сергей', 'Дмитрий', 'Андрей', 'Алексей', 'Максим', 'Иван', 'Артём',
+            'Владимир', 'Михаил', 'Роман', 'Денис', 'Евгений', 'Никита', 'Антон', 'Павел',
+            'Виктор', 'Игорь', 'Константин', 'Николай', 'Олег', 'Кирилл', 'Илья', 'Василий',
+            'Егор', 'Владислав', 'Данил', 'Артур', 'Станислав', 'Руслан'
+        ]
+        
+        self.popular_female_names = [
+            'Елена', 'Ольга', 'Наталья', 'Татьяна', 'Ирина', 'Анна', 'Светлана', 'Мария',
+            'Людмила', 'Галина', 'Екатерина', 'Надежда', 'Любовь', 'Валентина', 'Анастасия',
+            'Марина', 'Юлия', 'Вера', 'Лариса', 'Дарья', 'Алина', 'Виктория', 'Полина',
+            'Арина', 'Ксения', 'Валерия', 'Оксана', 'Инна', 'Алла', 'Жанна'
+        ]
+        
+        self.popular_male_surnames = [
+            'Иванов', 'Смирнов', 'Кузнецов', 'Попов', 'Васильев', 'Петров', 'Соколов', 'Михайлов',
+            'Новиков', 'Фёдоров', 'Морозов', 'Волков', 'Алексеев', 'Лебедев', 'Семёнов', 'Егоров',
+            'Павлов', 'Козлов', 'Степанов', 'Николаев', 'Орлов', 'Андреев', 'Макаров', 'Никитин',
+            'Захаров', 'Зайцев', 'Соловьёв', 'Борисов', 'Яковлев', 'Григорьев'
+        ]
+        
+        self.popular_female_surnames = [
+            'Иванова', 'Смирнова', 'Кузнецова', 'Попова', 'Васильева', 'Петрова', 'Соколова', 'Михайлова',
+            'Новикова', 'Фёдорова', 'Морозова', 'Волкова', 'Алексеева', 'Лебедева', 'Семёнова', 'Егорова',
+            'Павлова', 'Козлова', 'Степанова', 'Николаева', 'Орлова', 'Андреева', 'Макарова', 'Никитина',
+            'Захарова', 'Зайцева', 'Соловьёва', 'Борисова', 'Яковлева', 'Григорьева'
+        ]
+
         self._pregenerated_data = {
             'male_first_names': [],
             'male_last_names': [],
@@ -75,9 +105,9 @@ class ToolsService:
         
         return health_status
 
-    async def generate_users(self, count: int):
+    async def generate_users(self, count: int, use_selectivity: bool = False):
         start_time = time.time()
-        logger.info(f"Начинаем генерацию {count} пользователей")
+        logger.info(f"Начинаем генерацию {count} пользователей с учетом селективности: {use_selectivity}")
 
         self._pregenerate_data()
 
@@ -102,7 +132,7 @@ class ToolsService:
         tasks = []
         for i, batch_size in enumerate(batches):
             task = asyncio.create_task(
-                self._create_batch_optimized(db_semaphore, batch_size, i + 1)
+                self._create_batch_optimized(db_semaphore, batch_size, i + 1, use_selectivity)
             )
             tasks.append(task)
 
@@ -121,11 +151,11 @@ class ToolsService:
 
     # === BATCH PROCESSING ===
 
-    async def _create_batch_optimized(self, semaphore: asyncio.Semaphore, batch_size: int, batch_num: int):
+    async def _create_batch_optimized(self, semaphore: asyncio.Semaphore, batch_size: int, batch_num: int, use_selectivity: bool = False):
         async with semaphore:
             batch_start = time.time()
             
-            users_data = self._generate_users_data_fast(batch_size)
+            users_data = self._generate_users_data(batch_size, use_selectivity)
             
             await self.user_provider.bulk_create(users_data)
             
@@ -135,6 +165,12 @@ class ToolsService:
             return batch_size
 
     # === DATA GENERATION ===
+    
+    def _get_weighted_value(self, populars: list, mixed: list) -> str:
+        if random.random() < 0.7:
+            return random.choice(populars)
+        else:
+            return random.choice(mixed)
         
     def _pregenerate_data(self):
         if not self._pregenerated_password:
@@ -153,7 +189,7 @@ class ToolsService:
             
             logger.info(f"Предгенерация завершена за {time.time() - start:.2f} сек")
 
-    def _generate_users_data_fast(self, count: int):
+    def _generate_users_data(self, count: int, use_selectivity: bool = False):
         import random
         from datetime import date, timedelta
         
@@ -181,11 +217,19 @@ class ToolsService:
             gender = random.choice(genders)
             
             if gender == "male":
-                first_name = random.choice(male_first_names)
-                last_name = random.choice(male_last_names)
+                if use_selectivity:
+                    first_name = self._get_weighted_value(self.popular_male_names, male_first_names)
+                    last_name = self._get_weighted_value(self.popular_male_surnames, male_last_names)
+                else:
+                    first_name = random.choice(male_first_names)
+                    last_name = random.choice(male_last_names)
             else:  # female
-                first_name = random.choice(female_first_names)
-                last_name = random.choice(female_last_names)
+                if use_selectivity:
+                    first_name = self._get_weighted_value(self.popular_female_names, female_first_names)
+                    last_name = self._get_weighted_value(self.popular_female_surnames, female_last_names)
+                else:
+                    first_name = random.choice(female_first_names)
+                    last_name = random.choice(female_last_names)
             
             user_data = {
                 "first_name": first_name,
