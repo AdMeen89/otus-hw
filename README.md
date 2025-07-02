@@ -2,17 +2,15 @@
 
 ## Описание проекта
 
-Проект представляет собой веб-приложение, написанное на Python с использованием FastAPI и PostgreSQL 14.
-
+Высоконагруженное веб-приложение с PostgreSQL master-slave репликацией, написанное на Python с использованием FastAPI.
 
 ## Технологический стек
 
-- Python 3.12
-- PostgreSQL 14
-- FastAPI (асинхронный веб-фреймворк)
-- SQLAlchemy (ORM для работы с базой данных)
-- Docker и Docker Compose (для контейнеризации)
-- Pydantic (для валидации данных)
+- **Python 3.12** + **FastAPI** (асинхронный веб-фреймворк)
+- **PostgreSQL 14** с репликацией (1 master + 2 slaves)
+- **Docker** + **Docker Compose** (контейнеризация)
+- **Автоматическая балансировка нагрузки** между базами данных
+- **Grafana** (мониторинг)
 
 ## Установка и запуск
 
@@ -20,57 +18,68 @@
 - Docker
 - Docker Compose
 
-### Запуск с использованием Docker
+### 🚀 Режим 1: Обычное развертывание (без репликации)
 
-1. Клонировать репозиторий
 ```bash
-git clone <repository-url>
-cd home_work
-```
-
-2. Создать файл `.env` на основе примера `.env.example`
-```bash
-cp .env.example .env
-```
-
-3. Запустить контейнеры
-```bash
+# Простой запуск с одной базой данных
 docker-compose up -d
 ```
 
-После запуска приложение будет доступно по адресу:
-- API: http://localhost:8000/api/v1
-- Документация API (Swagger): http://localhost:8000/docs
+**Доступные сервисы:**
+- **API**: http://localhost:8000
+- **Swagger документация**: http://localhost:8000/docs  
+- **PostgreSQL**: localhost:5432
 
-### Запуск в локальном окружении (без Docker)
+### 🏗️ Режим 2: С репликацией (1 master + 2 slaves)
 
-1. Убедитесь, что у вас установлены Python 3.12 и PostgreSQL 14
-
-2. Создайте виртуальное окружение и активируйте его
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # для Linux/Mac
-# или
-.venv\Scripts\activate  # для Windows
+# Запуск с репликацией и балансировкой нагрузки
+docker-compose -f docker-compose-replication.yml up -d
 ```
 
-3. Установите зависимости
+**Доступные сервисы:**
+- **API**: http://localhost:8000
+- **Swagger документация**: http://localhost:8000/docs
+- **PostgreSQL Master** (запись): localhost:5432
+- **PostgreSQL Slave 1** (чтение): localhost:5433
+- **PostgreSQL Slave 2** (чтение): localhost:5434
+- **Grafana мониторинг**: http://localhost:3000
+
+**🤖 Автоматическая балансировка:**
+- **SELECT запросы** → распределяются между слейвами (50%/50%)
+- **INSERT/UPDATE/DELETE** → выполняются на мастере
+- **Транзакции** → выполняются на мастере
+
+## API Endpoints
+
+### 🛠️ Tools
+- **`GET /api/v1/tools/health/db`** - Проверка состояния всех баз данных
+- **`POST /api/v1/tools/generate-users/{count}`** - Генерация тестовых пользователей
+
+### ⚖️ Load Balancing
+- **`GET /api/v1/load-balancing/stats`** - Статистика балансировки нагрузки
+- **`POST /api/v1/load-balancing/reset-stats`** - Сброс статистики
+- **`POST /api/v1/load-balancing/test/{count}`** - Тестирование балансировки
+
+### 👥 Users
+- **`GET /api/v1/users/search`** - Поиск пользователей по имени и фамилии
+- **`GET /api/v1/users/{user_id}`** - Получение пользователя по ID
+- **`POST /api/v1/users/register`** - Регистрация нового пользователя
+- **`POST /api/v1/auth/login`** - Аутентификация пользователя
+
+## Тестирование
+
+### Коллекция Postman
+Импортируйте коллекцию: `./docs/Otus_Homework.postman_collection.json`
+
+### Проверка работы репликации
 ```bash
-pip install -e .
+# Генерируем пользователей (запись в master)
+curl -X POST http://localhost:8000/api/v1/tools/generate-users/10
+
+# Проверяем статистику балансировки (чтение со slaves)
+curl http://localhost:8000/api/v1/load-balancing/stats
+
+# Тестируем балансировку
+curl -X POST http://localhost:8000/api/v1/load-balancing/test/20
 ```
-
-4. Настройте базу данных PostgreSQL и создайте файл `.env`
-
-5. Примените миграции
-```bash
-yoyo apply --database 'postgresql://username:password@localhost:5432/dbname' ./migrations
-```
-
-6. Запустите приложение
-```bash
-uvicorn src.app.app:app --host 0.0.0.0 --port 8000 --reload
-```
-
-## Коллекция Postman
-
-Коллекция находится в `./docs/Otus_Homework.postman_collection.json`.

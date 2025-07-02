@@ -221,6 +221,13 @@ services:
       DB_MASTER_USER: otus_hw
       DB_MASTER_PASSWORD: otus_hw
       
+      # Стандартные переменные для миграций (указывают на master)
+      DB_HOST: postgres-master
+      DB_PORT: 5432
+      DB_NAME: otus_hw
+      DB_USER: otus_hw
+      DB_PASSWORD: otus_hw
+      
       # Slave databases (для чтения) - возвращаемся к 2 слейвам
       DB_SLAVE1_HOST: postgres-slave1
       DB_SLAVE1_PORT: 5432
@@ -234,6 +241,7 @@ services:
       DB_SLAVE2_USER: otus_hw
       DB_SLAVE2_PASSWORD: otus_hw
       
+      ENABLE_REPLICATION: true
       SECRET_KEY: your-secret-key-here
     depends_on:
       postgres-master:

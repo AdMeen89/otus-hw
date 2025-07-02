@@ -5,7 +5,7 @@ import bcrypt
 from src.service.user_service import UserService
 from src.providers.user_provider import UserProvider
 from src.helpers.logger import logger
-from src.database.replication_router import router as db_router
+from src.database.connection import router as db_router
 
 
 class ToolsService:

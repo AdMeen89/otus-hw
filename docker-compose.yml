@@ -57,6 +57,7 @@ services:
       - DB_NAME=otus_hw
       - DB_USER=otus_hw
       - DB_PASSWORD=otus_hw
+      - ENABLE_REPLICATION=false
     depends_on:
       db:
         condition: service_healthy

@@ -4,12 +4,12 @@ set -e
 # Устанавливаем PYTHONPATH для корректных импортов
 export PYTHONPATH=/app
 
-# Упрощенная версия URL для миграций
-MIGRATION_DB_URL="postgresql://otus_hw:otus_hw@db:5432/otus_hw"
+# Динамический URL для миграций (использует переменные окружения)
+MIGRATION_DB_URL="postgresql://${DB_USER:-otus_hw}:${DB_PASSWORD:-otus_hw}@${DB_HOST:-db}:${DB_PORT:-5432}/${DB_NAME:-otus_hw}"
 
 # Применяем миграции (без проверки соединения, которая иногда зависает)
 echo "Running database migrations..."
-cd /app && yoyo apply --database "$MIGRATION_DB_URL" ./migrations || true
+cd /app && yoyo apply --batch --database "$MIGRATION_DB_URL" ./migrations || true
 
 # Запуск приложения
 echo "Starting application..."

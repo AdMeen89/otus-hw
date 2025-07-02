@@ -1,4 +1,4 @@
-from src.database.replication_router import router
+from src.database.connection import router
 
 
 class UserProvider:
@@ -28,11 +28,13 @@ class UserProvider:
             return await conn.fetchrow(query, user_id)
     
     async def delete_all(self):
-        query = """
-        DELETE FROM otus_hw.users;
-        """
-        async with router.get_connection(query, force_master=True) as conn:
-            await conn.execute(query)
+        queries = [
+            "DELETE FROM otus_hw.users;",
+            "ALTER SEQUENCE otus_hw.users_id_seq RESTART WITH 1;"
+        ]
+        async with router.get_connection("DELETE", force_master=True) as conn:
+            for query in queries:
+                await conn.execute(query)
 
     async def search_by_first_and_last_names(self, first_name: str, last_name: str):
         query = """
