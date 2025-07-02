@@ -20,8 +20,10 @@ class ToolsService:
         
         self._pregenerated_password = None
         self._pregenerated_data = {
-            'first_names': [],
-            'last_names': [],
+            'male_first_names': [],
+            'male_last_names': [],
+            'female_first_names': [],
+            'female_last_names': [],
             'cities': [],
             'interests': ["спорт", "музыка", "кино", "чтение", "путешествия", 
                          "готовка", "программирование", "фотография", "танцы", "игры"],
@@ -142,8 +144,11 @@ class ToolsService:
             salt = bcrypt.gensalt()
             self._pregenerated_password = bcrypt.hashpw(self.default_password.encode(), salt).decode()
             
-            self._pregenerated_data['first_names'] = [self.fake.first_name() for _ in range(1000)]
-            self._pregenerated_data['last_names'] = [self.fake.last_name() for _ in range(1000)]
+            # Генерируем имена и фамилии отдельно для мужчин и женщин
+            self._pregenerated_data['male_first_names'] = [self.fake.first_name_male() for _ in range(500)]
+            self._pregenerated_data['male_last_names'] = [self.fake.last_name_male() for _ in range(500)]
+            self._pregenerated_data['female_first_names'] = [self.fake.first_name_female() for _ in range(500)]
+            self._pregenerated_data['female_last_names'] = [self.fake.last_name_female() for _ in range(500)]
             self._pregenerated_data['cities'] = [self.fake.city() for _ in range(200)]
             
             logger.info(f"Предгенерация завершена за {time.time() - start:.2f} сек")
@@ -154,8 +159,11 @@ class ToolsService:
         
         users_data = []
         
-        first_names = self._pregenerated_data['first_names']
-        last_names = self._pregenerated_data['last_names'] 
+        # Разделяем данные по полу
+        male_first_names = self._pregenerated_data['male_first_names']
+        male_last_names = self._pregenerated_data['male_last_names']
+        female_first_names = self._pregenerated_data['female_first_names']
+        female_last_names = self._pregenerated_data['female_last_names']
         cities = self._pregenerated_data['cities']
         interests = self._pregenerated_data['interests']
         genders = self._pregenerated_data['genders']
@@ -169,11 +177,21 @@ class ToolsService:
         for _ in range(count):
             birthday = min_date + timedelta(days=random.randint(0, date_range))
             
+            # Сначала выбираем пол, затем соответствующие имя и фамилию
+            gender = random.choice(genders)
+            
+            if gender == "male":
+                first_name = random.choice(male_first_names)
+                last_name = random.choice(male_last_names)
+            else:  # female
+                first_name = random.choice(female_first_names)
+                last_name = random.choice(female_last_names)
+            
             user_data = {
-                "first_name": random.choice(first_names),
-                "last_name": random.choice(last_names),
+                "first_name": first_name,
+                "last_name": last_name,
                 "birthday": birthday,
-                "gender": random.choice(genders),
+                "gender": gender,
                 "interests": random.choice(interests),
                 "city": random.choice(cities),
                 "password": password,
