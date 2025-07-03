@@ -1,0 +1,379 @@
+{
+  "id": null,
+  "title": "Home Work 3: Single DB vs Master-Slave Replication",
+  "description": "Сравнение производительности: Single Database vs Master-Slave Replication",
+  "tags": ["homework", "performance", "replication", "database"],
+  "timezone": "browser",
+  "refresh": false,
+  "time": {
+    "from": "2025-01-01T00:00:00.000Z",
+    "to": "2025-01-02T00:00:00.000Z"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Производительность",
+      "type": "table",
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "WITH stats AS (\n  SELECT \n    thread_count,\n    AVG(CASE WHEN index_status = 'before' THEN response_time END) as single_db_latency,\n    AVG(CASE WHEN index_status = 'after' THEN response_time END) as replication_latency,\n    ROUND((COUNT(*) FILTER (WHERE index_status = 'before' AND success = true) / EXTRACT(EPOCH FROM (MAX(CASE WHEN index_status = 'before' THEN to_timestamp(timestamp_ms / 1000) END) - MIN(CASE WHEN index_status = 'before' THEN to_timestamp(timestamp_ms / 1000) END))))::numeric, 1) as single_db_rps,\n    ROUND((COUNT(*) FILTER (WHERE index_status = 'after' AND success = true) / EXTRACT(EPOCH FROM (MAX(CASE WHEN index_status = 'after' THEN to_timestamp(timestamp_ms / 1000) END) - MIN(CASE WHEN index_status = 'after' THEN to_timestamp(timestamp_ms / 1000) END))))::numeric, 1) as replication_rps\n  FROM jmeter_results \n  WHERE success = true\n  GROUP BY thread_count\n)\nSELECT \n  thread_count as \"Потоки\",\n  ROUND(single_db_latency::numeric, 1) as \"Single DB Latency (мс)\",\n  ROUND(replication_latency::numeric, 1) as \"Master-Slave Latency (мс)\",\n  single_db_rps as \"Single DB RPS\",\n  replication_rps as \"Master-Slave RPS\",\n  ROUND(((single_db_latency - replication_latency) / single_db_latency * 100)::numeric, 1) as \"Улучшение Latency %\",\n  ROUND(((replication_rps - single_db_rps) / single_db_rps * 100)::numeric, 1) as \"Улучшение RPS %\",\n  CASE \n    WHEN replication_latency < single_db_latency THEN 'Master-Slave'\n    ELSE 'Single DB'\n  END as \"Лучше по задержке\",\n  CASE \n    WHEN replication_rps > single_db_rps THEN 'Master-Slave'\n    ELSE 'Single DB'\n  END as \"Лучше по RPS\"\nFROM stats\nORDER BY thread_count",
+          "format": "table",
+          "datasource": "PostgreSQL"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": -10
+              }
+            ]
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": 2,
+      "title": "📈 Сравнение Latency: Single DB vs Master-Slave",
+      "type": "barchart",
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT \n  thread_count || ' потоков' as metric,\n  AVG(CASE WHEN index_status = 'before' THEN response_time END) as \"Single DB\",\n  AVG(CASE WHEN index_status = 'after' THEN response_time END) as \"Master-Slave\"\nFROM jmeter_results \nWHERE success = true\nGROUP BY thread_count\nORDER BY thread_count",
+          "format": "table",
+          "datasource": "PostgreSQL"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ms"
+        }
+      },
+      "options": {
+        "orientation": "auto",
+        "text": {
+          "valueSize": 12
+        },
+        "displayMode": "value",
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0,
+        "showValue": "always"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      }
+    },
+    {
+      "id": 3,
+      "title": "🚀 Сравнение Throughput: Single DB vs Master-Slave",
+      "type": "barchart",
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT \n  thread_count || ' потоков' as metric,\n  ROUND((COUNT(*) FILTER (WHERE index_status = 'before') / EXTRACT(EPOCH FROM (MAX(CASE WHEN index_status = 'before' THEN to_timestamp(timestamp_ms / 1000) END) - MIN(CASE WHEN index_status = 'before' THEN to_timestamp(timestamp_ms / 1000) END))))::numeric, 1) as \"Single DB\",\n  ROUND((COUNT(*) FILTER (WHERE index_status = 'after') / EXTRACT(EPOCH FROM (MAX(CASE WHEN index_status = 'after' THEN to_timestamp(timestamp_ms / 1000) END) - MIN(CASE WHEN index_status = 'after' THEN to_timestamp(timestamp_ms / 1000) END))))::numeric, 1) as \"Master-Slave\"\nFROM jmeter_results \nWHERE success = true\nGROUP BY thread_count\nORDER BY thread_count",
+          "format": "table",
+          "datasource": "PostgreSQL"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "reqps"
+        }
+      },
+      "options": {
+        "orientation": "auto",
+        "text": {
+          "valueSize": 12
+        },
+        "displayMode": "value",
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0,
+        "showValue": "always"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      }
+    },
+    {
+      "id": 4,
+      "title": "📊 Single DB - Детальные перцентили Latency",
+      "type": "table",
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT \n  thread_count as \"Потоки\",\n  MIN(response_time) as \"Min\",\n  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY response_time)::numeric, 1) as \"P50\",\n  ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY response_time)::numeric, 1) as \"P90\",\n  ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY response_time)::numeric, 1) as \"P95\",\n  ROUND(PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY response_time)::numeric, 1) as \"P99\",\n  MAX(response_time) as \"Max\",\n  ROUND(AVG(response_time)::numeric, 1) as \"Среднее\",\n  COUNT(*) as \"Запросов\"\nFROM jmeter_results \nWHERE index_status = 'before' AND success = true\nGROUP BY thread_count\nORDER BY thread_count",
+          "format": "table",
+          "datasource": "PostgreSQL"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 200
+              },
+              {
+                "color": "red",
+                "value": 500
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Потоки"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName", 
+              "options": "Запросов"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "(Min|P50|P90|P95|P99|Max|Среднее)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      }
+    },
+    {
+      "id": 5,
+      "title": "📊 Master-Slave - Детальные перцентили Latency",
+      "type": "table",
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT \n  thread_count as \"Потоки\",\n  MIN(response_time) as \"Min\",\n  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY response_time)::numeric, 1) as \"P50\",\n  ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY response_time)::numeric, 1) as \"P90\",\n  ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY response_time)::numeric, 1) as \"P95\",\n  ROUND(PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY response_time)::numeric, 1) as \"P99\",\n  MAX(response_time) as \"Max\",\n  ROUND(AVG(response_time)::numeric, 1) as \"Среднее\",\n  COUNT(*) as \"Запросов\"\nFROM jmeter_results \nWHERE index_status = 'after' AND success = true\nGROUP BY thread_count\nORDER BY thread_count",
+          "format": "table",
+          "datasource": "PostgreSQL"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 200
+              },
+              {
+                "color": "red",
+                "value": 500
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Потоки"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName", 
+              "options": "Запросов"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "(Min|P50|P90|P95|P99|Max|Среднее)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      }
+    },
+    {
+      "id": 6,
+      "title": "📉 Single DB - Детальная статистика",
+      "type": "barchart",
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT \n  thread_count || ' потоков' as metric,\n  AVG(response_time) as \"Среднее\",\n  PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY response_time) as \"P95\",\n  MAX(response_time) as \"Максимум\"\nFROM jmeter_results \nWHERE index_status = 'before' AND success = true\nGROUP BY thread_count\nORDER BY thread_count",
+          "format": "table",
+          "datasource": "PostgreSQL"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ms"
+        }
+      },
+      "options": {
+        "orientation": "auto",
+        "text": {
+          "valueSize": 12
+        },
+        "displayMode": "value",
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0,
+        "showValue": "always"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      }
+    },
+    {
+      "id": 7,
+      "title": "📈 Master-Slave Replication - Детальная статистика",
+      "type": "barchart",
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT \n  thread_count || ' потоков' as metric,\n  AVG(response_time) as \"Среднее\",\n  PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY response_time) as \"P95\",\n  MAX(response_time) as \"Максимум\"\nFROM jmeter_results \nWHERE index_status = 'after' AND success = true\nGROUP BY thread_count\nORDER BY thread_count",
+          "format": "table",
+          "datasource": "PostgreSQL"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ms"
+        }
+      },
+      "options": {
+        "orientation": "auto",
+        "text": {
+          "valueSize": 12
+        },
+        "displayMode": "value",
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0,
+        "showValue": "always"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      }
+    }
+  ],
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "liveNow": false,
+  "schemaVersion": 37,
+  "style": "dark",
+  "templating": {
+    "list": []
+  },
+  "timepicker": {
+    "hidden": true
+  },
+  "version": 1,
+  "weekStart": ""
+} 

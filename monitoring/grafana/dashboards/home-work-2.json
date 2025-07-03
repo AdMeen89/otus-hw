@@ -1,6 +1,6 @@
 {
   "id": null,
-  "title": "Performance Comparison: Before vs After Index",
+  "title": "Home Work 2: Performance Comparison: Before vs After Index",
     "description": "Сравнение производительности до и после добавления индекса",
     "tags": ["performance", "database", "index"],
     "timezone": "browser",
