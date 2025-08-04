@@ -4,12 +4,12 @@ datasources:
   - name: PostgreSQL
     type: postgres
     access: proxy
-    url: db:5432
+    url: postgres-master:5432
     database: otus_hw
     user: otus_hw
     secureJsonData:
       password: otus_hw
-    isDefault: false
+    isDefault: true
     jsonData:
       sslmode: disable
       maxOpenConns: 100
