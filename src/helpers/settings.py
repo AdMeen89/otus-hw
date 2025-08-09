@@ -6,7 +6,6 @@ class Settings:
     def __init__(self):
         dotenv.load_dotenv()
         
-        self.enable_replication = os.getenv("ENABLE_REPLICATION", "false").lower() == "true"
         self.db_master_url = self._build_db_url("MASTER")
         self.db_slave_urls = self._build_slave_urls()
         self.secret_key = os.getenv("SECRET_KEY")

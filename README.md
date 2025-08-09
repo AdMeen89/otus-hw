@@ -7,7 +7,7 @@
 ## Технологический стек
 
 - **Python 3.12** + **FastAPI** (асинхронный веб-фреймворк)
-- **PostgreSQL 14** с репликацией (1 master + 2 slaves)
+- **PostgreSQL 14** кластер под управлением Patroni (HA) + HAProxy endpoints (write/read)
 - **Docker** + **Docker Compose** (контейнеризация)
 - **Автоматическая балансировка нагрузки** между базами данных
 - **Grafana** (мониторинг)
@@ -18,31 +18,17 @@
 - Docker
 - Docker Compose
 
-### 🚀 Режим 1: Обычное развертывание (без репликации)
+### 🚀 Запуск (Patroni + HAProxy)
 
 ```bash
-# Простой запуск с одной базой данных
-docker-compose up -d
-```
-
-**Доступные сервисы:**
-- **API**: http://localhost:8000
-- **Swagger документация**: http://localhost:8000/docs  
-- **PostgreSQL**: localhost:5432
-
-### 🏗️ Режим 2: С репликацией (1 master + 2 slaves)
-
-```bash
-# Запуск с репликацией и балансировкой нагрузки
-docker-compose -f docker-compose-replication.yml up -d
+docker compose -f docker-compose-patroni.yml up -d
 ```
 
 **Доступные сервисы:**
 - **API**: http://localhost:8000
 - **Swagger документация**: http://localhost:8000/docs
-- **PostgreSQL Master** (запись): localhost:5432
-- **PostgreSQL Slave 1** (чтение): localhost:5433
-- **PostgreSQL Slave 2** (чтение): localhost:5434
+- **HAProxy write** (master): localhost:5432
+- **HAProxy read** (replicas): localhost:5433
 - **Grafana мониторинг**: http://localhost:3000
 
 **🤖 Автоматическая балансировка:**
@@ -57,9 +43,7 @@ docker-compose -f docker-compose-replication.yml up -d
 - **`POST /api/v1/tools/generate-users/{count}`** - Генерация тестовых пользователей
 
 ### ⚖️ Load Balancing
-- **`GET /api/v1/load-balancing/stats`** - Статистика балансировки нагрузки
-- **`POST /api/v1/load-balancing/reset-stats`** - Сброс статистики
-- **`POST /api/v1/load-balancing/test/{count}`** - Тестирование балансировки
+Балансировка реализуется на уровне HAProxy. В приложении отдельные эндпоинты статистики удалены.
 
 ### 👥 Users
 - **`GET /api/v1/users/search`** - Поиск пользователей по имени и фамилии
@@ -72,14 +56,11 @@ docker-compose -f docker-compose-replication.yml up -d
 ### Коллекция Postman
 Импортируйте коллекцию: `./docs/Otus_Homework.postman_collection.json`
 
-### Проверка работы репликации
+### Проверка работы
 ```bash
-# Генерируем пользователей (запись в master)
+# Генерируем пользователей (запись через HAProxy write endpoint)
 curl -X POST http://localhost:8000/api/v1/tools/generate-users/10
 
-# Проверяем статистику балансировки (чтение со slaves)
-curl http://localhost:8000/api/v1/load-balancing/stats
-
-# Тестируем балансировку
-curl -X POST http://localhost:8000/api/v1/load-balancing/test/20
+# Поиск пользователей (чтение уйдет на HAProxy read endpoint)
+curl "http://localhost:8000/api/v1/user/get/1"
 ```
