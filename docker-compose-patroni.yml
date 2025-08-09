@@ -1,0 +1,205 @@
+services:
+  # ==========================
+  # Etcd (single node for training)
+  # ==========================
+  etcd:
+    image: bitnami/etcd:3.5
+    environment:
+      - ALLOW_NONE_AUTHENTICATION=yes
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd:2379
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+      - ETCD_INITIAL_ADVERTISE_PEER_URLS=http://etcd:2380
+      - ETCD_LISTEN_PEER_URLS=http://0.0.0.0:2380
+      - ETCD_NAME=etcd
+    networks:
+      - patroni
+
+    ports:
+      - "2379:2379"
+
+  # ==========================
+  # Patroni PostgreSQL cluster (3 nodes)
+  # ==========================
+  pg-1:
+    build: ./patroni
+    hostname: pg-1
+    environment:
+      # Cluster scope & node identity
+      PATRONI_NAME: pg-1
+      PATRONI_SCOPE: otus_cluster
+      PATRONI_LOG_LEVEL: INFO
+
+      # DCS (etcd3)
+      PATRONI_DCS: etcd
+      PATRONI_ETCD3_HOSTS: etcd:2379
+
+      # REST API
+      PATRONI_RESTAPI_LISTEN: 0.0.0.0:8008
+      PATRONI_RESTAPI_CONNECT_ADDRESS: pg-1:8008
+
+      # PostgreSQL
+      PATRONI_POSTGRESQL_LISTEN: 0.0.0.0:5432
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: pg-1:5432
+      PATRONI_POSTGRESQL_PGPARAMS: -c hot_standby=on
+
+      # Auth
+      PATRONI_SUPERUSER_USERNAME: postgres
+      PATRONI_SUPERUSER_PASSWORD: otus_hw
+      PATRONI_REPLICATION_USERNAME: replicator
+      PATRONI_REPLICATION_PASSWORD: repl_password
+
+      # Synchronous quorum replication
+      PATRONI_SYNCHRONOUS_MODE: "true"
+      PATRONI_SYNCHRONOUS_MODE_STRICT: "true"
+      PATRONI_SYNCHRONOUS_NODE_COUNT: "1"
+
+      # Minimal pg_hba to allow app/haproxy connections
+      PATRONI_POSTGRESQL_PGHBA: |
+        host all all 0.0.0.0/0 md5
+        host replication replicator 0.0.0.0/0 md5
+
+    volumes:
+      - pg1_data:/var/lib/postgresql/data
+    networks:
+      - patroni
+    ports:
+      - "8008:8008"    # patroni REST (optional)
+    depends_on:
+      - etcd
+
+  pg-2:
+    build: ./patroni
+    hostname: pg-2
+    environment:
+      PATRONI_NAME: pg-2
+      PATRONI_SCOPE: otus_cluster
+      PATRONI_LOG_LEVEL: INFO
+      PATRONI_DCS: etcd
+      PATRONI_ETCD3_HOSTS: etcd:2379
+      PATRONI_RESTAPI_LISTEN: 0.0.0.0:8008
+      PATRONI_RESTAPI_CONNECT_ADDRESS: pg-2:8008
+      PATRONI_POSTGRESQL_LISTEN: 0.0.0.0:5432
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: pg-2:5432
+      PATRONI_POSTGRESQL_PGPARAMS: -c hot_standby=on
+      PATRONI_SUPERUSER_USERNAME: postgres
+      PATRONI_SUPERUSER_PASSWORD: otus_hw
+      PATRONI_REPLICATION_USERNAME: replicator
+      PATRONI_REPLICATION_PASSWORD: repl_password
+      PATRONI_SYNCHRONOUS_MODE: "true"
+      PATRONI_SYNCHRONOUS_MODE_STRICT: "true"
+      PATRONI_SYNCHRONOUS_NODE_COUNT: "1"
+      PATRONI_POSTGRESQL_PGHBA: |
+        host all all 0.0.0.0/0 md5
+        host replication replicator 0.0.0.0/0 md5
+    volumes:
+      - pg2_data:/var/lib/postgresql/data
+    networks:
+      - patroni
+    ports:
+      - "8009:8008"
+    depends_on:
+      - etcd
+
+  pg-3:
+    build: ./patroni
+    hostname: pg-3
+    environment:
+      PATRONI_NAME: pg-3
+      PATRONI_SCOPE: otus_cluster
+      PATRONI_LOG_LEVEL: INFO
+      PATRONI_DCS: etcd
+      PATRONI_ETCD3_HOSTS: etcd:2379
+      PATRONI_RESTAPI_LISTEN: 0.0.0.0:8008
+      PATRONI_RESTAPI_CONNECT_ADDRESS: pg-3:8008
+      PATRONI_POSTGRESQL_LISTEN: 0.0.0.0:5432
+      PATRONI_POSTGRESQL_CONNECT_ADDRESS: pg-3:5432
+      PATRONI_POSTGRESQL_PGPARAMS: -c hot_standby=on
+      PATRONI_SUPERUSER_USERNAME: postgres
+      PATRONI_SUPERUSER_PASSWORD: otus_hw
+      PATRONI_REPLICATION_USERNAME: replicator
+      PATRONI_REPLICATION_PASSWORD: repl_password
+      PATRONI_SYNCHRONOUS_MODE: "true"
+      PATRONI_SYNCHRONOUS_MODE_STRICT: "true"
+      PATRONI_SYNCHRONOUS_NODE_COUNT: "1"
+      PATRONI_POSTGRESQL_PGHBA: |
+        host all all 0.0.0.0/0 md5
+        host replication replicator 0.0.0.0/0 md5
+    volumes:
+      - pg3_data:/var/lib/postgresql/data
+    networks:
+      - patroni
+    ports:
+      - "8010:8008"
+    depends_on:
+      - etcd
+
+  # ==========================
+  # HAProxy: stable endpoints for app
+  # - 5432: write (routes to current master)
+  # - 5433: read  (routes to replicas)
+  # ==========================
+  haproxy:
+    image: haproxy:2.8
+    depends_on:
+      - pg-1
+      - pg-2
+      - pg-3
+    ports:
+      - "5432:5432"
+      - "5433:5433"
+    volumes:
+      - ./patroni/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    networks:
+      - patroni
+
+  # ==========================
+  # Application (points to HAProxy)
+  # ==========================
+  app:
+    build: .
+    environment:
+      - ENABLE_REPLICATION=true
+      # Master endpoint via HAProxy
+      - DB_MASTER_HOST=haproxy
+      - DB_MASTER_PORT=5432
+      - DB_MASTER_NAME=postgres
+      - DB_MASTER_USER=postgres
+      - DB_MASTER_PASSWORD=otus_hw
+      # Read endpoint(s) via HAProxy (single entry through DB_SLAVES)
+      - DB_SLAVES=haproxy:5433
+      # Generic env for migrations (entrypoint.sh uses these)
+      - DB_HOST=haproxy
+      - DB_PORT=5432
+      - DB_NAME=postgres
+      - DB_USER=postgres
+      - DB_PASSWORD=otus_hw
+      - SECRET_KEY=your-secret-key-here
+    depends_on:
+      - haproxy
+    ports:
+      - "8000:8000"
+    networks:
+      - patroni
+    volumes:
+      - ./src:/app/src
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    networks:
+      - patroni
+    depends_on:
+      - app
+
+volumes:
+  pg1_data:
+  pg2_data:
+  pg3_data:
+
+networks:
+  patroni:
+    driver: bridge
