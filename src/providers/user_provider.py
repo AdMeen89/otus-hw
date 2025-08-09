@@ -1,49 +1,62 @@
-from sqlalchemy import text
-from src.database.connection import connection
-from sqlalchemy.ext.asyncio import AsyncSession
+from src.database.connection import router
 
 
 class UserProvider:
-    @connection
-    async def create(self, data: dict, session: AsyncSession):
+    async def create(self, data: dict):
         query = """
         INSERT INTO otus_hw.users (first_name, password_hash, last_name, birthday, gender, interests, city) 
-        VALUES (:first_name, :password, :last_name, :birthday, :gender, :interests, :city) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7) 
         RETURNING *;
         """
-        result = await session.execute(text(query), data)
-        await session.commit()
-        return result.fetchone()
+        async with router.get_connection(query, force_master=True) as conn:
+            return await conn.fetchrow(
+                query,
+                data["first_name"],
+                data["password"],
+                data["last_name"],
+                data["birthday"],
+                data["gender"],
+                data["interests"],
+                data["city"]
+            )
 
-    @connection
-    async def get_by_id(self, user_id: int, session: AsyncSession):
+    async def get_by_id(self, user_id: int):
         query = """
-        SELECT * FROM otus_hw.users WHERE id = :user_id LIMIT 1;
+        SELECT * FROM otus_hw.users WHERE id = $1 LIMIT 1;
         """
-        result = await session.execute(text(query), {"user_id": user_id})
-        return result.fetchone()
+        async with router.get_connection(query) as conn:
+            return await conn.fetchrow(query, user_id)
     
-    @connection
-    async def delete_all(self, session: AsyncSession):
-        query = """
-        DELETE FROM otus_hw.users;
-        """
-        await session.execute(text(query))
-        await session.commit()
+    async def delete_all(self):
+        queries = [
+            "DELETE FROM otus_hw.users;",
+            "ALTER SEQUENCE otus_hw.users_id_seq RESTART WITH 1;"
+        ]
+        async with router.get_connection("DELETE", force_master=True) as conn:
+            for query in queries:
+                await conn.execute(query)
 
-    @connection
-    async def search_by_first_and_last_names(self, first_name: str, last_name: str, session: AsyncSession):
+    async def search_by_first_and_last_names(self, first_name: str, last_name: str):
         query = """
-        SELECT * FROM otus_hw.users WHERE first_name LIKE :first_name AND last_name LIKE :last_name ORDER BY id ASC;
+        SELECT * FROM otus_hw.users WHERE first_name LIKE $1 AND last_name LIKE $2 ORDER BY id ASC;
         """
-        result = await session.execute(text(query), {"first_name": f"{first_name}%", "last_name": f"{last_name}%"})
-        return result.fetchall()
+        async with router.get_connection(query) as conn:
+            return await conn.fetch(query, f"{first_name}%", f"{last_name}%")
 
-    @connection
-    async def bulk_create(self, data: list[dict], session: AsyncSession):
+    async def bulk_create(self, data: list[dict]):
         query = """
         INSERT INTO otus_hw.users (first_name, password_hash, last_name, birthday, gender, interests, city) 
-        VALUES (:first_name, :password, :last_name, :birthday, :gender, :interests, :city);
+        VALUES ($1, $2, $3, $4, $5, $6, $7);
         """
-        await session.execute(text(query), data)
-        await session.commit()
+        async with router.get_transaction() as conn:
+            for user_data in data:
+                await conn.execute(
+                    query,
+                    user_data["first_name"],
+                    user_data["password"],
+                    user_data["last_name"],
+                    user_data["birthday"],
+                    user_data["gender"],
+                    user_data["interests"],
+                    user_data["city"]
+                )

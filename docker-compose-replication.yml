@@ -1,0 +1,290 @@
+services:
+  # PostgreSQL Master
+  postgres-master:
+    image: postgres:14
+    container_name: postgres-master
+    ports:
+      - "5432:5432"
+    restart: always
+    environment:
+      POSTGRES_DB: otus_hw
+      POSTGRES_USER: otus_hw
+      POSTGRES_PASSWORD: otus_hw
+      POSTGRES_REPLICATION_USER: replicator
+      POSTGRES_REPLICATION_PASSWORD: repl_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_master_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d/migrations
+      - ./replication/master-init.sql:/docker-entrypoint-initdb.d/master-init.sql
+      - ./replication/setup-replication.sh:/docker-entrypoint-initdb.d/setup-replication.sh
+      - ./replication/pg_hba.conf:/docker-entrypoint-initdb.d/pg_hba.conf
+    command: >
+      postgres
+      -c wal_level=replica
+      -c max_wal_senders=10
+      -c max_replication_slots=10
+      -c hot_standby=on
+      -c hot_standby_feedback=on
+      -c max_connections=1200
+      -c shared_buffers=1GB
+      -c effective_cache_size=2GB
+      -c maintenance_work_mem=128MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=32MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=8MB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
+      -c max_worker_processes=8
+      -c max_parallel_workers_per_gather=4
+      -c max_parallel_workers=8
+      -c max_parallel_maintenance_workers=4
+      -c log_statement=none
+      -c log_duration=off
+      -c log_min_duration_statement=2000
+      -c log_replication_commands=on
+      -c archive_mode=on
+      -c archive_command='test ! -f /var/lib/postgresql/data/archive/%f && cp %p /var/lib/postgresql/data/archive/%f'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U otus_hw -d otus_hw"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - postgres_replication
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '2'
+          memory: 2G
+
+  # PostgreSQL Slave 1
+  postgres-slave1:
+    image: postgres:14
+    container_name: postgres-slave1
+    ports:
+      - "5433:5432"
+    restart: always
+    user: postgres
+    environment:
+      POSTGRES_USER: otus_hw
+      POSTGRES_PASSWORD: otus_hw
+      POSTGRES_MASTER_SERVICE: postgres-master
+      POSTGRES_REPLICATION_USER: replicator
+      POSTGRES_REPLICATION_PASSWORD: repl_password
+      PGUSER: otus_hw
+      PGPASSWORD: repl_password
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - postgres_slave1_data:/var/lib/postgresql/data
+    entrypoint: |
+      bash -c "
+      set -e
+      echo 'Waiting for master to be ready...'
+      until pg_isready -h postgres-master -p 5432 -U replicator; do
+        echo 'Master is not ready yet. Waiting...'
+        sleep 2
+      done
+      echo 'Master is ready!'
+      
+      # Устанавливаем правильные права на директорию данных
+      chmod 700 /var/lib/postgresql/data
+      
+      if [ ! -s /var/lib/postgresql/data/PG_VERSION ]; then
+        echo 'Initializing slave from master...'
+        pg_basebackup -h postgres-master -D /var/lib/postgresql/data -U replicator -v -P -R
+        echo 'Base backup completed.'
+        
+        cat >> /var/lib/postgresql/data/postgresql.conf <<EOF
+      hot_standby = on
+      max_standby_streaming_delay = 30s
+      wal_receiver_status_interval = 10s
+      hot_standby_feedback = on
+      max_connections = 1200
+      EOF
+        
+        echo 'Slave configuration completed.'
+      else
+        echo 'Slave already initialized.'
+      fi
+      
+      exec postgres -c hot_standby=on -c max_connections=1200 -c shared_buffers=512MB -c effective_cache_size=1GB -c work_mem=4MB -c log_statement=none -c log_duration=off -c log_min_duration_statement=2000
+      "
+    depends_on:
+      postgres-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U otus_hw"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - postgres_replication
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+  # PostgreSQL Slave 2
+  postgres-slave2:
+    image: postgres:14
+    container_name: postgres-slave2
+    ports:
+      - "5434:5432"
+    restart: always
+    user: postgres
+    environment:
+      POSTGRES_USER: otus_hw
+      POSTGRES_PASSWORD: otus_hw
+      POSTGRES_MASTER_SERVICE: postgres-master
+      POSTGRES_REPLICATION_USER: replicator
+      POSTGRES_REPLICATION_PASSWORD: repl_password
+      PGUSER: otus_hw
+      PGPASSWORD: repl_password
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - postgres_slave2_data:/var/lib/postgresql/data
+    entrypoint: |
+      bash -c "
+      set -e
+      echo 'Waiting for master to be ready...'
+      until pg_isready -h postgres-master -p 5432 -U replicator; do
+        echo 'Master is not ready yet. Waiting...'
+        sleep 2
+      done
+      echo 'Master is ready!'
+      
+      # Устанавливаем правильные права на директорию данных
+      chmod 700 /var/lib/postgresql/data
+      
+      if [ ! -s /var/lib/postgresql/data/PG_VERSION ]; then
+        echo 'Initializing slave from master...'
+        pg_basebackup -h postgres-master -D /var/lib/postgresql/data -U replicator -v -P -R
+        echo 'Base backup completed.'
+        
+        cat >> /var/lib/postgresql/data/postgresql.conf <<EOF
+      hot_standby = on
+      max_standby_streaming_delay = 30s
+      wal_receiver_status_interval = 10s
+      hot_standby_feedback = on
+      max_connections = 1200
+      EOF
+        
+        echo 'Slave configuration completed.'
+      else
+        echo 'Slave already initialized.'
+      fi
+      
+      exec postgres -c hot_standby=on -c max_connections=1200 -c shared_buffers=512MB -c effective_cache_size=1GB -c work_mem=4MB -c log_statement=none -c log_duration=off -c log_min_duration_statement=2000
+      "
+    depends_on:
+      postgres-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U otus_hw"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - postgres_replication
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+  # FastAPI Application
+  app:
+    build: .
+    container_name: otus-hw-app
+    ports:
+      - "8000:8000"
+    restart: always
+    environment:
+      # Master database (для записи)
+      DB_MASTER_HOST: postgres-master
+      DB_MASTER_PORT: 5432
+      DB_MASTER_NAME: otus_hw
+      DB_MASTER_USER: otus_hw
+      DB_MASTER_PASSWORD: otus_hw
+      
+      # Стандартные переменные для миграций (указывают на master)
+      DB_HOST: postgres-master
+      DB_PORT: 5432
+      DB_NAME: otus_hw
+      DB_USER: otus_hw
+      DB_PASSWORD: otus_hw
+      
+      # Slave databases (для чтения) - возвращаемся к 2 слейвам
+      DB_SLAVE1_HOST: postgres-slave1
+      DB_SLAVE1_PORT: 5432
+      DB_SLAVE1_NAME: otus_hw
+      DB_SLAVE1_USER: otus_hw
+      DB_SLAVE1_PASSWORD: otus_hw
+      
+      DB_SLAVE2_HOST: postgres-slave2
+      DB_SLAVE2_PORT: 5432
+      DB_SLAVE2_NAME: otus_hw
+      DB_SLAVE2_USER: otus_hw
+      DB_SLAVE2_PASSWORD: otus_hw
+      
+      ENABLE_REPLICATION: true
+      SECRET_KEY: your-secret-key-here
+    depends_on:
+      postgres-master:
+        condition: service_healthy
+      postgres-slave1:
+        condition: service_healthy
+      postgres-slave2:
+        condition: service_healthy
+    networks:
+      - postgres_replication
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Grafana for monitoring
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - postgres-master
+    networks:
+      - postgres_replication
+    restart: always
+
+volumes:
+  postgres_master_data:
+  postgres_slave1_data:
+  postgres_slave2_data:
+  grafana_data:
+
+networks:
+  postgres_replication:
+    driver: bridge 

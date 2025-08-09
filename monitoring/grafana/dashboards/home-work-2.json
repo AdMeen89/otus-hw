@@ -1,0 +1,395 @@
+{
+  "id": null,
+  "title": "Home Work 2: Performance Comparison: Before vs After Index",
+    "description": "Сравнение производительности до и после добавления индекса",
+    "tags": ["performance", "database", "index"],
+    "timezone": "browser",
+    "refresh": false,
+      "time": {
+    "from": "2025-01-01T00:00:00.000Z",
+    "to": "2025-01-02T00:00:00.000Z"
+  },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Среднее время ответа (мс)",
+        "type": "stat",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT \n  thread_count,\n  index_status,\n  AVG(response_time)::int as avg_response_time\nFROM jmeter_results \nWHERE success = true\nGROUP BY thread_count, index_status\nORDER BY thread_count, index_status",
+            "format": "table",
+            "datasource": "PostgreSQL"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "yellow",
+                  "value": 100
+                },
+                {
+                  "color": "red",
+                  "value": 500
+                }
+              ]
+            },
+            "unit": "ms"
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "id": 2,
+        "title": "Успешность запросов (%)",
+        "type": "stat",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT \n  thread_count,\n  index_status,\n  ROUND(COUNT(*) FILTER (WHERE success = true) * 100.0 / COUNT(*), 1) as success_rate\nFROM jmeter_results \nGROUP BY thread_count, index_status\nORDER BY thread_count, index_status",
+            "format": "table",
+            "datasource": "PostgreSQL"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "red",
+                  "value": null
+                },
+                {
+                  "color": "yellow",
+                  "value": 90
+                },
+                {
+                  "color": "green",
+                  "value": 95
+                }
+              ]
+            },
+            "unit": "percent"
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        }
+      },
+      {
+        "id": 3,
+        "title": "Сравнение времени ответа по потокам",
+        "type": "barchart",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT \n  thread_count || ' threads' as metric,\n  AVG(CASE WHEN index_status = 'before' THEN response_time END) as \"До индекса\",\n  AVG(CASE WHEN index_status = 'after' THEN response_time END) as \"После индекса\"\nFROM jmeter_results \nWHERE success = true\nGROUP BY thread_count\nORDER BY thread_count",
+            "format": "table",
+            "datasource": "PostgreSQL"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "ms"
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 8
+        }
+      },
+      {
+        "id": 4,
+        "title": "Перцентили времени ответа",
+        "type": "table",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT \n  thread_count as \"Потоки\",\n  index_status as \"Статус\",\n  MIN(response_time) as \"Min\",\n  PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY response_time) as \"P50\",\n  PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY response_time) as \"P90\",\n  PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY response_time) as \"P95\",\n  PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY response_time) as \"P99\",\n  MAX(response_time) as \"Max\"\nFROM jmeter_results \nWHERE success = true\nGROUP BY thread_count, index_status\nORDER BY thread_count, index_status",
+            "format": "table",
+            "datasource": "PostgreSQL"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "unit": "ms"
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 16
+        }
+      },
+      {
+        "id": 5,
+        "title": "Количество запросов и ошибок",
+        "type": "table",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT \n  thread_count as \"Потоки\",\n  index_status as \"Статус\",\n  COUNT(*) as \"Всего запросов\",\n  COUNT(*) FILTER (WHERE success = true) as \"Успешные\",\n  COUNT(*) FILTER (WHERE success = false) as \"Ошибки\",\n  ROUND(COUNT(*) FILTER (WHERE success = true) * 100.0 / COUNT(*), 1) as \"Успешность %\"\nFROM jmeter_results \nGROUP BY thread_count, index_status\nORDER BY thread_count, index_status",
+            "format": "table",
+            "datasource": "PostgreSQL"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 24
+        }
+      },
+      {
+        "id": 6,
+        "title": "Улучшение производительности",
+        "type": "table",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "WITH stats AS (\n  SELECT \n    thread_count,\n    AVG(CASE WHEN index_status = 'before' THEN response_time END) as before_avg,\n    AVG(CASE WHEN index_status = 'after' THEN response_time END) as after_avg,\n    COUNT(*) FILTER (WHERE index_status = 'before' AND success = true) as before_success,\n    COUNT(*) FILTER (WHERE index_status = 'after' AND success = true) as after_success,\n    COUNT(*) FILTER (WHERE index_status = 'before') as before_total,\n    COUNT(*) FILTER (WHERE index_status = 'after') as after_total\n  FROM jmeter_results \n  GROUP BY thread_count\n)\nSELECT \n  thread_count as \"Потоки\",\n  ROUND(before_avg::numeric, 1) as \"До индекса (мс)\",\n  ROUND(after_avg::numeric, 1) as \"После индекса (мс)\",\n  ROUND(((before_avg - after_avg) / before_avg * 100)::numeric, 1) as \"Улучшение %\",\n  ROUND((before_success * 100.0 / before_total)::numeric, 1) as \"Успешность до %\",\n  ROUND((after_success * 100.0 / after_total)::numeric, 1) as \"Успешность после %\"\nFROM stats\nORDER BY thread_count",
+            "format": "table",
+            "datasource": "PostgreSQL"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 32
+        }
+      },
+      {
+        "id": 7,
+        "title": "Latency ДО добавления индекса",
+        "type": "barchart",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT \n  thread_count || ' threads' as metric,\n  AVG(response_time) as \"Average\",\n  MIN(response_time) as \"Min\",\n  MAX(response_time) as \"Max\"\nFROM jmeter_results \nWHERE index_status = 'before' AND success = true\nGROUP BY thread_count\nORDER BY thread_count",
+            "format": "table",
+            "datasource": "PostgreSQL"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "ms",
+            "custom": {
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "vis": false
+              }
+            }
+          }
+        },
+        "options": {
+          "orientation": "auto",
+          "text": {
+            "valueSize": 12
+          },
+          "displayMode": "value",
+          "xTickLabelRotation": 0,
+          "xTickLabelSpacing": 0,
+          "showValue": "always"
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 40
+        }
+      },
+      {
+        "id": 8,
+        "title": "Throughput ДО добавления индекса (RPS)",
+        "type": "barchart",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT \n  thread_count || ' threads' as metric,\n  ROUND(COUNT(*)::numeric / EXTRACT(EPOCH FROM (MAX(to_timestamp(timestamp_ms / 1000)) - MIN(to_timestamp(timestamp_ms / 1000)))), 2) as \"RPS\"\nFROM jmeter_results \nWHERE index_status = 'before' AND success = true\nGROUP BY thread_count\nORDER BY thread_count",
+            "format": "table",
+            "datasource": "PostgreSQL"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "reqps",
+            "custom": {
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "vis": false
+              }
+            }
+          }
+        },
+        "options": {
+          "orientation": "auto",
+          "text": {
+            "valueSize": 12
+          },
+          "displayMode": "value",
+          "xTickLabelRotation": 0,
+          "xTickLabelSpacing": 0,
+          "showValue": "always"
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 40
+        }
+      },
+      {
+        "id": 9,
+        "title": "Latency ПОСЛЕ добавления индекса",
+        "type": "barchart",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT \n  thread_count || ' threads' as metric,\n  AVG(response_time) as \"Average\",\n  MIN(response_time) as \"Min\",\n  MAX(response_time) as \"Max\"\nFROM jmeter_results \nWHERE index_status = 'after' AND success = true\nGROUP BY thread_count\nORDER BY thread_count",
+            "format": "table",
+            "datasource": "PostgreSQL"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "ms",
+            "custom": {
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "vis": false
+              }
+            }
+          }
+        },
+        "options": {
+          "orientation": "auto",
+          "text": {
+            "valueSize": 12
+          },
+          "displayMode": "value",
+          "xTickLabelRotation": 0,
+          "xTickLabelSpacing": 0,
+          "showValue": "always"
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 48
+        }
+      },
+      {
+        "id": 10,
+        "title": "Throughput ПОСЛЕ добавления индекса (RPS)",
+        "type": "barchart",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT \n  thread_count || ' threads' as metric,\n  ROUND(COUNT(*)::numeric / EXTRACT(EPOCH FROM (MAX(to_timestamp(timestamp_ms / 1000)) - MIN(to_timestamp(timestamp_ms / 1000)))), 2) as \"RPS\"\nFROM jmeter_results \nWHERE index_status = 'after' AND success = true\nGROUP BY thread_count\nORDER BY thread_count",
+            "format": "table",
+            "datasource": "PostgreSQL"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "reqps",
+            "custom": {
+              "hideFrom": {
+                "legend": false,
+                "tooltip": false,
+                "vis": false
+              }
+            }
+          }
+        },
+        "options": {
+          "orientation": "auto",
+          "text": {
+            "valueSize": 12
+          },
+          "displayMode": "value",
+          "xTickLabelRotation": 0,
+          "xTickLabelSpacing": 0,
+          "showValue": "always"
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 48
+        }
+      }
+    ],
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 0,
+    "links": [],
+    "liveNow": false,
+    "schemaVersion": 37,
+    "style": "dark",
+    "templating": {
+      "list": []
+    },
+    "timepicker": {},
+    "version": 1,
+    "weekStart": ""
+} 
