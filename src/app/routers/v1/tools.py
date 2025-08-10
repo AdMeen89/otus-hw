@@ -2,7 +2,7 @@ from fastapi import APIRouter
 
 from src.service.tools_service import ToolsService
 
-router = APIRouter(tags=["tools"])
+router = APIRouter(tags=["Tools"])
 tools_service = ToolsService()
 
 
