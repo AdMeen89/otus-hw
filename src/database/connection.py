@@ -1,4 +1,3 @@
-from src.helpers.settings import settings
 from src.helpers.logger import logger
 from src.database.routers import RoutingDataSource, ReplicationRoutingDataSource
 
