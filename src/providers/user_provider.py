@@ -60,3 +60,11 @@ class UserProvider:
                     user_data["interests"],
                     user_data["city"]
                 )
+
+    async def get_all_ids(self) -> list[int]:
+        query = """
+        SELECT id FROM otus_hw.users ORDER BY id ASC;
+        """
+        async with router.get_connection(query) as conn:
+            rows = await conn.fetch(query)
+            return [int(r["id"]) for r in rows]

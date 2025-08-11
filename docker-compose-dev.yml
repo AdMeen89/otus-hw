@@ -176,6 +176,27 @@ services:
       - patroni
 
   # ==========================
+  # Feed worker (Kafka consumer)
+  # ==========================
+  feed-worker:
+    build: .
+    entrypoint: ["bash","-lc","python -m src.workers.feed_worker_main"]
+    environment:
+      - KAFKA_BROKERS=redpanda:9092
+      - REDIS_URL=redis://redis:6379/0
+      - DB_HOST=haproxy
+      - DB_PORT=5432
+      - DB_NAME=postgres
+      - DB_USER=postgres
+      - DB_PASSWORD=otus_hw
+    depends_on:
+      - redpanda
+      - redis
+      - haproxy
+    networks:
+      - patroni
+
+  # ==========================
   # Application (points to HAProxy)
   # ==========================
   app:
@@ -203,6 +224,7 @@ services:
       - haproxy
       - redis
       - redpanda
+      - feed-worker
     ports:
       - "8000:8000"
     networks:

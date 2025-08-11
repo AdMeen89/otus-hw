@@ -4,9 +4,11 @@ from faker import Faker
 import time
 import bcrypt
 from src.service.user_service import UserService
+from src.service.event_bus import KafkaEventBus
 from src.providers.user_provider import UserProvider
 from src.helpers.logger import logger
 from src.database.connection import router as db_router
+from src.providers.post_provider import PostProvider
 
 
 class ToolsService:
@@ -59,6 +61,7 @@ class ToolsService:
                          "готовка", "программирование", "фотография", "танцы", "игры"],
             'genders': ["male", "female"]
         }
+        self.event_bus = KafkaEventBus()
 
     async def get_database_health(self):
         num_slaves = len(db_router._slave_pools) if db_router._slave_pools else 0
@@ -148,6 +151,30 @@ class ToolsService:
             f"Генерация {count} пользователей завершена за {total_time:.2f} сек"
         )
         return f"Успешно создано {count} пользователей за {total_time:.2f} сек"
+
+    # === POSTS GENERATION ===
+
+    async def generate_posts_for_user(self, user_id: int, count: int = 10) -> int:
+        provider = PostProvider()
+        created = 0
+        for _ in range(count):
+            text = self.fake.sentence(nb_words=12)
+            row = await provider.create(user_id, text)
+            # опубликуем событие, чтобы воркер сразу положил пост в ленты подписчиков
+            await self.event_bus.publish_post_created({
+                "post_id": row["id"],
+                "author_id": row["user_id"],
+                "created_at": row["created_at"].isoformat(),
+            })
+            created += 1 if row else 0
+        return created
+
+    async def generate_posts_for_all_users(self, count_per_user: int = 3) -> int:
+        ids = await self.user_provider.get_all_ids()
+        total = 0
+        for uid in ids:
+            total += await self.generate_posts_for_user(uid, count_per_user)
+        return total
 
     # === BATCH PROCESSING ===
 

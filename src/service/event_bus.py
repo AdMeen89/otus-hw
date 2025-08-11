@@ -21,6 +21,10 @@ class EventBus(ABC):
     async def publish_friend_removed(self, event: Dict[str, Any]) -> None:
         ...
 
+    @abstractmethod
+    async def publish_post_deleted(self, event: Dict[str, Any]) -> None:
+        ...
+
 
 class NullEventBus(EventBus):
     async def publish_post_created(self, event: Dict[str, Any]) -> None:
@@ -32,11 +36,14 @@ class NullEventBus(EventBus):
     async def publish_friend_removed(self, event: Dict[str, Any]) -> None:
         logger.debug(f"Event(FriendRemoved) noop: {event}")
 
+    async def publish_post_deleted(self, event: Dict[str, Any]) -> None:
+        logger.debug(f"Event(PostDeleted) noop: {event}")
+
 
 class RedisStreamsEventBus(EventBus):
     async def publish_post_created(self, event: Dict[str, Any]) -> None:
         r = await get_redis()
-        await r.xadd(settings.feed_stream_posts, event, id="*")
+        await r.xadd(settings.feed_stream_posts, {"type": "created", **event}, id="*")
 
     async def publish_friend_added(self, event: Dict[str, Any]) -> None:
         r = await get_redis()
@@ -45,6 +52,10 @@ class RedisStreamsEventBus(EventBus):
     async def publish_friend_removed(self, event: Dict[str, Any]) -> None:
         r = await get_redis()
         await r.xadd(settings.feed_stream_friendships, event, id="*")
+
+    async def publish_post_deleted(self, event: Dict[str, Any]) -> None:
+        r = await get_redis()
+        await r.xadd(settings.feed_stream_posts, {"type": "deleted", **event}, id="*")
 
 
 class KafkaEventBus(EventBus):
@@ -59,14 +70,22 @@ class KafkaEventBus(EventBus):
 
     async def publish_post_created(self, event: Dict[str, Any]) -> None:
         producer = await self._get_producer()
-        await producer.send_and_wait("feed.posts", json.dumps(event).encode("utf-8"), key=str(event.get("author_id")).encode("utf-8"))
+        payload = {"type": "created", **event}
+        await producer.send_and_wait("feed.posts", json.dumps(payload).encode("utf-8"), key=str(event.get("author_id")).encode("utf-8"))
 
     async def publish_friend_added(self, event: Dict[str, Any]) -> None:
         producer = await self._get_producer()
-        await producer.send_and_wait("feed.friendships", json.dumps(event).encode("utf-8"), key=str(event.get("user_id")).encode("utf-8"))
+        payload = {"type": "added", **event}
+        await producer.send_and_wait("feed.friendships", json.dumps(payload).encode("utf-8"), key=str(event.get("user_id")).encode("utf-8"))
 
     async def publish_friend_removed(self, event: Dict[str, Any]) -> None:
         producer = await self._get_producer()
-        await producer.send_and_wait("feed.friendships", json.dumps(event).encode("utf-8"), key=str(event.get("user_id")).encode("utf-8"))
+        payload = {"type": "removed", **event}
+        await producer.send_and_wait("feed.friendships", json.dumps(payload).encode("utf-8"), key=str(event.get("user_id")).encode("utf-8"))
+
+    async def publish_post_deleted(self, event: Dict[str, Any]) -> None:
+        producer = await self._get_producer()
+        payload = {"type": "deleted", **event}
+        await producer.send_and_wait("feed.posts", json.dumps(payload).encode("utf-8"), key=str(event.get("author_id")).encode("utf-8"))
 
 
