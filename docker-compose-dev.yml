@@ -21,7 +21,7 @@ services:
   # Patroni PostgreSQL cluster (3 nodes)
   # ==========================
   pg-1:
-    build: ./patroni
+    build: ./docker-cfg/dev
     hostname: pg-1
     environment:
       # Cluster scope & node identity
@@ -68,7 +68,7 @@ services:
       - etcd
 
   pg-2:
-    build: ./patroni
+    build: ./docker-cfg/dev
     hostname: pg-2
     environment:
       PATRONI_NAME: pg-2
@@ -101,7 +101,7 @@ services:
       - etcd
 
   pg-3:
-    build: ./patroni
+    build: ./docker-cfg/dev
     hostname: pg-3
     environment:
       PATRONI_NAME: pg-3
@@ -148,7 +148,51 @@ services:
       - "5432:5432"
       - "5433:5433"
     volumes:
-      - ./patroni/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./docker-cfg/dev/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    networks:
+      - patroni
+
+  # ==========================
+  # Redis (feed cache)
+  # ==========================
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - patroni
+
+  # ==========================
+  # Redpanda (Kafka API)
+  # ==========================
+  redpanda:
+    image: redpandadata/redpanda:v23.3.15
+    command:
+      - redpanda start --overprovisioned --smp 1 --memory 1G --reserve-memory 0M --node-id 0 --check=false --kafka-addr 0.0.0.0:9092 --advertise-kafka-addr redpanda:9092 --pandaproxy-addr 0.0.0.0:8082 --advertise-pandaproxy-addr redpanda:8082
+    ports:
+      - "9092:9092"
+      - "8082:8082"
+    networks:
+      - patroni
+
+  # ==========================
+  # Feed worker (Kafka consumer)
+  # ==========================
+  feed-worker:
+    build: .
+    entrypoint: ["bash","-lc","python -m src.workers.feed_worker_main"]
+    environment:
+      - KAFKA_BROKERS=redpanda:9092
+      - REDIS_URL=redis://redis:6379/0
+      - DB_HOST=haproxy
+      - DB_PORT=5432
+      - DB_NAME=postgres
+      - DB_USER=postgres
+      - DB_PASSWORD=otus_hw
+    depends_on:
+      - redpanda
+      - redis
+      - haproxy
     networks:
       - patroni
 
@@ -174,8 +218,13 @@ services:
       - DB_USER=postgres
       - DB_PASSWORD=otus_hw
       - SECRET_KEY=your-secret-key-here
+      - REDIS_URL=redis://redis:6379/0
+      - KAFKA_BROKERS=redpanda:9092
     depends_on:
       - haproxy
+      - redis
+      - redpanda
+      - feed-worker
     ports:
       - "8000:8000"
     networks:

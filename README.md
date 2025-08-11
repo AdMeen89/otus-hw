@@ -1,85 +1,33 @@
-# Домашнее задание курса Highload Architect
+FastAPI-приложение с PostgreSQL (Patroni + HAProxy), кэш ленты в Redis, события через Kafka (Redpanda). Лента друзей формируется fan-out on write.
 
-## Описание проекта
+### Компоненты
+- FastAPI приложение (uvicorn)
+- PostgreSQL кластер (Patroni 3 ноды) + HAProxy:
+  - 5432 — write (master)
+  - 5433 — read (replicas)
+- Redis — кэш ленты и постов
+- Kafka (Redpanda) — события PostCreated/PostDeleted и FriendAdded/FriendRemoved
+- Feed worker (Kafka consumer) — раскладывает посты в ленты, бэкфилл при дружбе, чистка при удалении
 
-Высоконагруженное веб-приложение с PostgreSQL master-slave репликацией, написанное на Python с использованием FastAPI.
+### Как работает кэш
+- Кэш ленты: Redis ZSET `feed:{user_id}`
+  - member = `post_id`, score = `created_at` (unix timestamp)
+  - ограничение размера: `FEED_MAX_SIZE` с обрезкой (trim)
+- Кэш постов: Redis key `post:{post_id}` = JSON поста с TTL (7 дней)
 
-## Технологический стек
+Потоки:
+- Создание поста -> запись в БД -> событие PostCreated -> feed-worker: ZADD post_id в `feed:{follower_id}` всех подписчиков автора (score = created_at) -> TRIM
+- Обновление поста -> перезапись `post:{id}` (SETEX)
+- Удаление поста -> DEL `post:{id}` + событие PostDeleted -> feed-worker: ZREM post_id из `feed:{follower_id}`
+- Добавление друга -> событие FriendAdded -> feed-worker: бэкфилл последних M постов друга в `feed:{user_id}` с корректным score
+- Удаление друга -> событие FriendRemoved -> feed-worker: удаление последних M постов друга из `feed:{user_id}`
 
-- **Python 3.12** + **FastAPI** (асинхронный веб-фреймворк)
-- **PostgreSQL 14** с репликацией (1 master + 2 slaves)
-- **Docker** + **Docker Compose** (контейнеризация)
-- **Автоматическая балансировка нагрузки** между базами данных
-- **Grafana** (мониторинг)
+Чтение ленты (GET /api/v1/feed):
+1) Берём список post_id из `feed:{user_id}` по offset/limit (ZREVRANGE)
+2) MGET `post:{id}` батчем
+3) Промахи (нет в кэше) -> SELECT из БД по id IN (...) и прогрев `post:{id}` (SETEX JSON)
+4) Возвращаем посты в правильном порядке
 
-## Установка и запуск
+### Запуск
+- docker compose -f docker-compose-dev.yml up -d
 
-### Предварительные требования
-- Docker
-- Docker Compose
-
-### 🚀 Режим 1: Обычное развертывание (без репликации)
-
-```bash
-# Простой запуск с одной базой данных
-docker-compose up -d
-```
-
-**Доступные сервисы:**
-- **API**: http://localhost:8000
-- **Swagger документация**: http://localhost:8000/docs  
-- **PostgreSQL**: localhost:5432
-
-### 🏗️ Режим 2: С репликацией (1 master + 2 slaves)
-
-```bash
-# Запуск с репликацией и балансировкой нагрузки
-docker-compose -f docker-compose-replication.yml up -d
-```
-
-**Доступные сервисы:**
-- **API**: http://localhost:8000
-- **Swagger документация**: http://localhost:8000/docs
-- **PostgreSQL Master** (запись): localhost:5432
-- **PostgreSQL Slave 1** (чтение): localhost:5433
-- **PostgreSQL Slave 2** (чтение): localhost:5434
-- **Grafana мониторинг**: http://localhost:3000
-
-**🤖 Автоматическая балансировка:**
-- **SELECT запросы** → распределяются между слейвами (50%/50%)
-- **INSERT/UPDATE/DELETE** → выполняются на мастере
-- **Транзакции** → выполняются на мастере
-
-## API Endpoints
-
-### 🛠️ Tools
-- **`GET /api/v1/tools/health/db`** - Проверка состояния всех баз данных
-- **`POST /api/v1/tools/generate-users/{count}`** - Генерация тестовых пользователей
-
-### ⚖️ Load Balancing
-- **`GET /api/v1/load-balancing/stats`** - Статистика балансировки нагрузки
-- **`POST /api/v1/load-balancing/reset-stats`** - Сброс статистики
-- **`POST /api/v1/load-balancing/test/{count}`** - Тестирование балансировки
-
-### 👥 Users
-- **`GET /api/v1/users/search`** - Поиск пользователей по имени и фамилии
-- **`GET /api/v1/users/{user_id}`** - Получение пользователя по ID
-- **`POST /api/v1/users/register`** - Регистрация нового пользователя
-- **`POST /api/v1/auth/login`** - Аутентификация пользователя
-
-## Тестирование
-
-### Коллекция Postman
-Импортируйте коллекцию: `./docs/Otus_Homework.postman_collection.json`
-
-### Проверка работы репликации
-```bash
-# Генерируем пользователей (запись в master)
-curl -X POST http://localhost:8000/api/v1/tools/generate-users/10
-
-# Проверяем статистику балансировки (чтение со slaves)
-curl http://localhost:8000/api/v1/load-balancing/stats
-
-# Тестируем балансировку
-curl -X POST http://localhost:8000/api/v1/load-balancing/test/20
-```

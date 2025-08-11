@@ -4,9 +4,11 @@ from faker import Faker
 import time
 import bcrypt
 from src.service.user_service import UserService
+from src.service.event_bus import KafkaEventBus
 from src.providers.user_provider import UserProvider
 from src.helpers.logger import logger
 from src.database.connection import router as db_router
+from src.providers.post_provider import PostProvider
 
 
 class ToolsService:
@@ -59,6 +61,7 @@ class ToolsService:
                          "готовка", "программирование", "фотография", "танцы", "игры"],
             'genders': ["male", "female"]
         }
+        self.event_bus = KafkaEventBus()
 
     async def get_database_health(self):
         num_slaves = len(db_router._slave_pools) if db_router._slave_pools else 0
@@ -148,6 +151,42 @@ class ToolsService:
             f"Генерация {count} пользователей завершена за {total_time:.2f} сек"
         )
         return f"Успешно создано {count} пользователей за {total_time:.2f} сек"
+
+    # === POSTS GENERATION ===
+
+    async def generate_posts_for_user(self, user_id: int, count: int = 10) -> int:
+        provider = PostProvider()
+        # генерируем тексты заранее
+        texts = [self.fake.sentence(nb_words=12) for _ in range(count)]
+        rows = await provider.bulk_create_for_user(user_id, texts)
+        # публикуем события пачкой (допустимо в dev)
+        for row in rows:
+            await self.event_bus.publish_post_created({
+                "post_id": row["id"],
+                "author_id": row["user_id"],
+                "created_at": row["created_at"].isoformat(),
+            })
+        return len(rows)
+
+    async def generate_posts_for_all_users(self, count_per_user: int = 3) -> int:
+        ids = await self.user_provider.get_all_ids()
+        provider = PostProvider()
+        user_ids: list[int] = []
+        texts: list[str] = []
+        # формируем плоские массивы для UNNEST
+        for uid in ids:
+            for _ in range(count_per_user):
+                user_ids.append(uid)
+                texts.append(self.fake.sentence(nb_words=12))
+        rows = await provider.bulk_create_many(user_ids, texts)
+        # события можно публиковать без строгой синхронизации — воркер догонит
+        for row in rows:
+            await self.event_bus.publish_post_created({
+                "post_id": row["id"],
+                "author_id": row["user_id"],
+                "created_at": row["created_at"].isoformat(),
+            })
+        return len(rows)
 
     # === BATCH PROCESSING ===
 

@@ -1,7 +1,6 @@
-from .routers import RoutingDataSource, ReplicationRoutingDataSource, SingleDatabaseRouter
+from .routers import RoutingDataSource, ReplicationRoutingDataSource
 
 __all__ = [
     'RoutingDataSource',
-    'ReplicationRoutingDataSource',
-    'SingleDatabaseRouter'
+    'ReplicationRoutingDataSource'
 ]
