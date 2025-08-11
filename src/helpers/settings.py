@@ -10,6 +10,13 @@ class Settings:
         self.db_slave_urls = self._build_slave_urls()
         self.secret_key = os.getenv("SECRET_KEY")
 
+        # Redis / Feed settings
+        self.redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
+        self.feed_stream_posts = os.getenv("FEED_STREAM_POSTS", "feed.posts")
+        self.feed_stream_friendships = os.getenv("FEED_STREAM_FRIENDSHIPS", "feed.friendships")
+        self.feed_max_size = int(os.getenv("FEED_MAX_SIZE", "1000"))
+        self.feed_backfill_size = int(os.getenv("FEED_BACKFILL_SIZE", "200"))
+
     # === SLAVE URL BUILDING ===
     
     def _build_slave_urls(self) -> list:

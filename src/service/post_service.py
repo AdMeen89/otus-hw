@@ -1,14 +1,20 @@
 from fastapi import HTTPException
 from src.models.post import Post
 from src.providers.post_provider import PostProvider
+from src.service.event_bus import KafkaEventBus
 
 class PostService:
     def __init__(self) -> None:
         self.post_provider = PostProvider()
+        self.event_bus = KafkaEventBus()
 
     async def create_post(self, user_id: int, text: str) -> Post:
         inserted_post = await self.post_provider.create(user_id, text)
-        print(inserted_post)
+        await self.event_bus.publish_post_created({
+            "post_id": inserted_post["id"],
+            "author_id": inserted_post["user_id"],
+            "created_at": inserted_post["created_at"].isoformat(),
+        })
         return Post(**inserted_post)
 
     async def update_post(self, user_id: int, text: str) -> Post:

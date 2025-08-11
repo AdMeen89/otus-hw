@@ -153,6 +153,29 @@ services:
       - patroni
 
   # ==========================
+  # Redis (feed cache)
+  # ==========================
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - patroni
+
+  # ==========================
+  # Redpanda (Kafka API)
+  # ==========================
+  redpanda:
+    image: redpandadata/redpanda:v23.3.15
+    command:
+      - redpanda start --overprovisioned --smp 1 --memory 1G --reserve-memory 0M --node-id 0 --check=false --kafka-addr 0.0.0.0:9092 --advertise-kafka-addr redpanda:9092 --pandaproxy-addr 0.0.0.0:8082 --advertise-pandaproxy-addr redpanda:8082
+    ports:
+      - "9092:9092"
+      - "8082:8082"
+    networks:
+      - patroni
+
+  # ==========================
   # Application (points to HAProxy)
   # ==========================
   app:
@@ -174,8 +197,12 @@ services:
       - DB_USER=postgres
       - DB_PASSWORD=otus_hw
       - SECRET_KEY=your-secret-key-here
+      - REDIS_URL=redis://redis:6379/0
+      - KAFKA_BROKERS=redpanda:9092
     depends_on:
       - haproxy
+      - redis
+      - redpanda
     ports:
       - "8000:8000"
     networks:
