@@ -1,6 +1,4 @@
-## Архитектура и компоненты
-
-Коротко: FastAPI-приложение с PostgreSQL (Patroni + HAProxy), кэш ленты в Redis, события через Kafka (Redpanda). Лента друзей формируется fan-out on write.
+FastAPI-приложение с PostgreSQL (Patroni + HAProxy), кэш ленты в Redis, события через Kafka (Redpanda). Лента друзей формируется fan-out on write.
 
 ### Компоненты
 - FastAPI приложение (uvicorn)

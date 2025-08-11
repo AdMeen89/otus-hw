@@ -156,25 +156,37 @@ class ToolsService:
 
     async def generate_posts_for_user(self, user_id: int, count: int = 10) -> int:
         provider = PostProvider()
-        created = 0
-        for _ in range(count):
-            text = self.fake.sentence(nb_words=12)
-            row = await provider.create(user_id, text)
-            # опубликуем событие, чтобы воркер сразу положил пост в ленты подписчиков
+        # генерируем тексты заранее
+        texts = [self.fake.sentence(nb_words=12) for _ in range(count)]
+        rows = await provider.bulk_create_for_user(user_id, texts)
+        # публикуем события пачкой (допустимо в dev)
+        for row in rows:
             await self.event_bus.publish_post_created({
                 "post_id": row["id"],
                 "author_id": row["user_id"],
                 "created_at": row["created_at"].isoformat(),
             })
-            created += 1 if row else 0
-        return created
+        return len(rows)
 
     async def generate_posts_for_all_users(self, count_per_user: int = 3) -> int:
         ids = await self.user_provider.get_all_ids()
-        total = 0
+        provider = PostProvider()
+        user_ids: list[int] = []
+        texts: list[str] = []
+        # формируем плоские массивы для UNNEST
         for uid in ids:
-            total += await self.generate_posts_for_user(uid, count_per_user)
-        return total
+            for _ in range(count_per_user):
+                user_ids.append(uid)
+                texts.append(self.fake.sentence(nb_words=12))
+        rows = await provider.bulk_create_many(user_ids, texts)
+        # события можно публиковать без строгой синхронизации — воркер догонит
+        for row in rows:
+            await self.event_bus.publish_post_created({
+                "post_id": row["id"],
+                "author_id": row["user_id"],
+                "created_at": row["created_at"].isoformat(),
+            })
+        return len(rows)
 
     # === BATCH PROCESSING ===
 
