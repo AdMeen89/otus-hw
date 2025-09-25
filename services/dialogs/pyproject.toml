@@ -1,0 +1,22 @@
+[project]
+name = "dialogs_service"
+version = "0.1.0"
+description = "Dialogs microservice (FastAPI)"
+authors = [
+    { name = "AdMeen89" }
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+    "pyjwt>=2.8.0",
+    "redis>=5.0.4",
+    "asyncpg>=0.29.0",
+    "pydantic>=2.7.0",
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
