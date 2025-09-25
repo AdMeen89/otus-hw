@@ -30,7 +30,7 @@ class DialogsRepository:
         sql = """
         INSERT INTO otus_hw.dialogs (pair_key, from_user, to_user, last_message)
         VALUES ($1, $2, $3, $4)
-        ON CONFLICT (from_user, to_user)
+        ON CONFLICT (pair_key, from_user, to_user)
         DO UPDATE SET last_message=EXCLUDED.last_message, updated_at=NOW()
         RETURNING id, pair_key, from_user, to_user, last_message, updated_at
         """
