@@ -12,7 +12,7 @@ services:
       - ETCD_LISTEN_PEER_URLS=http://0.0.0.0:2380
       - ETCD_NAME=etcd
     networks:
-      - patroni
+      - citus
 
     ports:
       - "2379:2379"
@@ -61,7 +61,7 @@ services:
     volumes:
       - pg1_data:/var/lib/postgresql/data
     networks:
-      - patroni
+      - citus
     ports:
       - "8008:8008"    # patroni REST (optional)
     depends_on:
@@ -94,7 +94,7 @@ services:
     volumes:
       - pg2_data:/var/lib/postgresql/data
     networks:
-      - patroni
+      - citus
     ports:
       - "8009:8008"
     depends_on:
@@ -127,7 +127,7 @@ services:
     volumes:
       - pg3_data:/var/lib/postgresql/data
     networks:
-      - patroni
+      - citus
     ports:
       - "8010:8008"
     depends_on:
@@ -147,7 +147,7 @@ services:
     volumes:
       - ./docker-cfg/dev/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     networks:
-      - patroni
+      - citus
 
   # ==========================
   # Redis (feed cache)
@@ -155,7 +155,7 @@ services:
   redis:
     image: redis:7-alpine
     networks:
-      - patroni
+      - citus
 
   # ==========================
   # Redpanda (Kafka API)
@@ -168,7 +168,7 @@ services:
       - "9092:9092"
       - "8082:8082"
     networks:
-      - patroni
+      - citus
 
   # ==========================
   # Feed worker (Kafka consumer)
@@ -189,7 +189,7 @@ services:
       - redis
       - haproxy
     networks:
-      - patroni
+      - citus
 
   # ==========================
   # Application (points to HAProxy)
@@ -223,7 +223,7 @@ services:
     ports:
       - "8000:8000"
     networks:
-      - patroni
+      - citus
     volumes:
       - ./src:/app/src
 
@@ -241,7 +241,7 @@ services:
     ports:
       - "5434:5432"  # Citus Coordinator
     networks:
-      - patroni
+      - citus
     volumes:
       - citus_coordinator_data:/var/lib/postgresql/data
     healthcheck:
@@ -259,10 +259,8 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: otus_hw
       CITUS_NODE_TYPE: worker
-    ports:
-      - "5435:5432"  # Citus Worker 1 (normal)
     networks:
-      - patroni
+      - citus
     volumes:
       - citus_worker1_data:/var/lib/postgresql/data
     healthcheck:
@@ -280,10 +278,8 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: otus_hw
       CITUS_NODE_TYPE: worker
-    ports:
-      - "5436:5432"  # Citus Worker 2 (normal)
     networks:
-      - patroni
+      - citus
     volumes:
       - citus_worker2_data:/var/lib/postgresql/data
     healthcheck:
@@ -301,10 +297,8 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: otus_hw
       CITUS_NODE_TYPE: worker
-    ports:
-      - "5437:5432"  # Citus Worker 3 (normal)
     networks:
-      - patroni
+      - citus
     volumes:
       - citus_worker3_data:/var/lib/postgresql/data
     healthcheck:
@@ -313,70 +307,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-
-  citus-worker-hot-1:
-    build: ./docker-cfg/citus
-    platform: linux/amd64
-    environment:
-      POSTGRES_DB: postgres
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: otus_hw
-      CITUS_NODE_TYPE: worker
-    ports:
-      - "5438:5432"  # Citus Worker Hot 1
-    networks:
-      - patroni
-    volumes:
-      - citus_worker_hot1_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-  citus-worker-hot-2:
-    build: ./docker-cfg/citus
-    platform: linux/amd64
-    environment:
-      POSTGRES_DB: postgres
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: otus_hw
-      CITUS_NODE_TYPE: worker
-    ports:
-      - "5439:5432"  # Citus Worker Hot 2
-    networks:
-      - patroni
-    volumes:
-      - citus_worker_hot2_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-  citus-worker-hot-3:
-    build: ./docker-cfg/citus
-    platform: linux/amd64
-    environment:
-      POSTGRES_DB: postgres
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: otus_hw
-      CITUS_NODE_TYPE: worker
-    ports:
-      - "5440:5432"  # Citus Worker Hot 3
-    networks:
-      - patroni
-    volumes:
-      - citus_worker_hot3_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
   # ==========================
   # Dialogs microservice
   # ==========================
@@ -396,10 +326,11 @@ services:
         condition: service_started
       citus-coordinator:
         condition: service_healthy
+    restart: on-failure
     ports:
       - "8081:8081"
     networks:
-      - patroni
+      - citus
 
 
   grafana:
@@ -410,7 +341,7 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=admin123
       - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
     networks:
-      - patroni
+      - citus
     depends_on:
       - app
 
@@ -424,10 +355,8 @@ volumes:
   citus_worker1_data:
   citus_worker2_data:
   citus_worker3_data:
-  citus_worker_hot1_data:
-  citus_worker_hot2_data:
-  citus_worker_hot3_data:
 
 networks:
   patroni:
+  citus:
     driver: bridge
