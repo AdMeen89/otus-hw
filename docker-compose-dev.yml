@@ -212,7 +212,7 @@ services:
       - DB_NAME=postgres
       - DB_USER=postgres
       - DB_PASSWORD=otus_hw
-      - SECRET_KEY=your-secret-key-here
+      - SECRET_KEY=e12ad29d681e85ce2095b2be5176e2613355fe98016d5329fedec6a80ff9c84768f7b8ee4f4da79c57cef119565e04b322854f0f2088aa172877504c7573b0c349e7d0845437bed17f5235f1e6a99a218fca8acdafed61c225348df36f0957502efd81c873a43457f44a4cca346e7e56f8f7a616e152a5af83b7a55c00be9f0a8e970a8875f0fb51e9902dda8ffecb7ef83663e3d058966dad86912122ab6fcb77ea6ebe6e52ac21f9f3aa23bfb536c900f87e71940fe12e207aa7b54e30b7267912718b0f4c794d5d86b9e0e8224df340b6366312599baa465b43e0974871c2bcac3c353797b8ef31a26b3131161e028f82829457ad375578874aceb2149d3e
       - REDIS_URL=redis://redis:6379/0
       - KAFKA_BROKERS=redpanda:9092
     depends_on:
@@ -314,23 +314,22 @@ services:
     build:
       context: .
       dockerfile: services/dialogs/Dockerfile
-    environment:
-      - SECRET_KEY=your-secret-key-here
-      - REDIS_URL=redis://redis:6379/0
-      - DIALOG_SHARDS=postgresql://postgres:otus_hw@citus-coordinator:5432/postgres,postgresql://postgres:otus_hw@citus-coordinator:5432/postgres,postgresql://postgres:otus_hw@citus-coordinator:5432/postgres
-      - HOT_PAIR_RATE_LIMIT=30
-      - HOT_PAIR_WINDOW_SEC=60
-      - HOT_PAIR_TTL_SEC=180
     depends_on:
       redis:
         condition: service_started
       citus-coordinator:
         condition: service_healthy
     restart: on-failure
+    environment:
+      - SECRET_KEY=e12ad29d681e85ce2095b2be5176e2613355fe98016d5329fedec6a80ff9c84768f7b8ee4f4da79c57cef119565e04b322854f0f2088aa172877504c7573b0c349e7d0845437bed17f5235f1e6a99a218fca8acdafed61c225348df36f0957502efd81c873a43457f44a4cca346e7e56f8f7a616e152a5af83b7a55c00be9f0a8e970a8875f0fb51e9902dda8ffecb7ef83663e3d058966dad86912122ab6fcb77ea6ebe6e52ac21f9f3aa23bfb536c900f87e71940fe12e207aa7b54e30b7267912718b0f4c794d5d86b9e0e8224df340b6366312599baa465b43e0974871c2bcac3c353797b8ef31a26b3131161e028f82829457ad375578874aceb2149d3e
+      - DB_MASTER_URL=postgresql://postgres:otus_hw@citus-coordinator:5432/postgres
     ports:
       - "8081:8081"
     networks:
       - citus
+    volumes:
+      - ./services/dialogs/src:/app/src
+      - ./services/dialogs/migrations:/app/migrations
 
 
   grafana:
