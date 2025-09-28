@@ -30,7 +30,9 @@ wait_for_worker() {
   return 1
 }
 
-psqlq() { psql -h localhost -U postgres -d postgres -q -t -A -c "$1" || true; }
+psqlq() {
+  psql -h localhost -U postgres -d postgres -q -t -A -c "$1"
+}
 
 # -----------------------------
 # start postgres with proper args
@@ -45,8 +47,7 @@ if [ $# -eq 0 ]; then
     -c max_wal_senders=16 \
     -c max_worker_processes=32 \
     -c max_logical_replication_workers=16 \
-    -c max_parallel_workers=16 \
-    -c citus.enable_schema_propagation=off
+    -c max_parallel_workers=16
 fi
 
 echo "PostgreSQL start args: $*"
@@ -67,8 +68,7 @@ fi
 # -----------------------------
 echo "Ensuring CREATE EXTENSION citus ..."
 psqlq "CREATE EXTENSION IF NOT EXISTS citus;"
-# (опционально) проверка
-psqlq "SELECT citus_installation_is_valid();"
+echo "Citus extension ready."
 
 # -----------------------------
 # role-specific init
@@ -76,33 +76,36 @@ psqlq "SELECT citus_installation_is_valid();"
 init_coordinator() {
   echo "Coordinator init..."
 
-  # подождать воркеров (добавь сюда имена, если расширишь кластер)
-  wait_for_worker "citus-worker-1" 5432 || true
-  wait_for_worker "citus-worker-2" 5432 || true
-  wait_for_worker "citus-worker-3" 5432 || true
+  # подождать воркеры
+  local worker_list=${CITUS_WORKER_NODES:-"citus-worker-1:5432,citus-worker-2:5432,citus-worker-3:5432"}
 
-  # теперь можно настраивать citus.* (расширение уже загружено)
-  echo "Set Citus cluster defaults (RF=1, disable local exec, disable schema propagation)..."
+  IFS=',' read -ra workers <<< "$worker_list"
+  for node in "${workers[@]}"; do
+    host=${node%%:*}
+    port=${node##*:}
+    wait_for_worker "$host" "$port"
+  done
+
+  echo "Set Citus cluster settings..."
   psqlq "ALTER SYSTEM SET citus.shard_replication_factor = 1;"
   psqlq "ALTER SYSTEM SET citus.enable_local_execution   = off;"
-  psqlq "ALTER SYSTEM SET citus.enable_schema_propagation = off;"
   psqlq "SELECT pg_reload_conf();"
 
   echo "Set coordinator hostname..."
   psqlq "SELECT citus_set_coordinator_host('citus-coordinator');"
 
-  echo "Adding workers (idempotent)..."
-  psql -h localhost -U postgres -d postgres <<'SQL'
--- добавляем ноду только если её ещё нет в pg_dist_node
-SELECT citus_add_node('citus-worker-1', 5432)
-WHERE NOT EXISTS (SELECT 1 FROM pg_dist_node WHERE nodename='citus-worker-1' AND nodeport=5432);
-
-SELECT citus_add_node('citus-worker-2', 5432)
-WHERE NOT EXISTS (SELECT 1 FROM pg_dist_node WHERE nodename='citus-worker-2' AND nodeport=5432);
-
-SELECT citus_add_node('citus-worker-3', 5432)
-WHERE NOT EXISTS (SELECT 1 FROM pg_dist_node WHERE nodename='citus-worker-3' AND nodeport=5432);
+  echo "Add workers (idempotent)..."
+  for node in "${workers[@]}"; do
+    host=${node%%:*}
+    port=${node##*:}
+    echo "Register node ${host}:${port}"
+    psql -h localhost -U postgres -d postgres <<SQL
+SELECT citus_add_node('${host}', ${port})
+WHERE NOT EXISTS (
+  SELECT 1 FROM pg_dist_node WHERE nodename='${host}' AND nodeport=${port}
+);
 SQL
+  done
 
   echo "Coordinator init done."
 }
@@ -110,8 +113,6 @@ SQL
 init_worker() {
   echo "Worker init..."
   # На воркере расширение уже создано выше (CREATE EXTENSION ...).
-  # Можешь здесь выключить propagation ещё раз через ALTER SYSTEM — но мы уже
-  # передали -c citus.enable_schema_propagation=off при старте postmaster.
   echo "Worker init done."
 }
 
