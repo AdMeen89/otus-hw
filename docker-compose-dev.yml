@@ -243,6 +243,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: otus_hw
       CITUS_NODE_TYPE: coordinator
+      CITUS_WORKER_NODES: citus-worker-1:5432,citus-worker-2:5432,citus-worker-3:5432,citus-worker-hot1:5432,citus-worker-hot2:5432
     ports:
       - "5434:5432"  # Citus Coordinator
     networks:
@@ -363,13 +364,15 @@ services:
       citus-coordinator:
         condition: service_healthy
     restart: on-failure
+    env_file:
+      - .env
     environment:
-      - SECRET_KEY=e12ad29d681e85ce2095b2be5176e2613355fe98016d5329fedec6a80ff9c84768f7b8ee4f4da79c57cef119565e04b322854f0f2088aa172877504c7573b0c349e7d0845437bed17f5235f1e6a99a218fca8acdafed61c225348df36f0957502efd81c873a43457f44a4cca346e7e56f8f7a616e152a5af83b7a55c00be9f0a8e970a8875f0fb51e9902dda8ffecb7ef83663e3d058966dad86912122ab6fcb77ea6ebe6e52ac21f9f3aa23bfb536c900f87e71940fe12e207aa7b54e30b7267912718b0f4c794d5d86b9e0e8224df340b6366312599baa465b43e0974871c2bcac3c353797b8ef31a26b3131161e028f82829457ad375578874aceb2149d3e
       - DB_MASTER_URL=postgresql://postgres:otus_hw@citus-coordinator:5432/postgres
       - REDIS_URL=redis://redis:6379/0
       - HOT_PAIR_RATE_LIMIT=5
       - HOT_PAIR_WINDOW_SEC=60
       - HOT_PAIR_TTL_SEC=180
+      - HOT_WORKER_NODES=citus-worker-hot1:5432,citus-worker-hot2:5432
     ports:
       - "8081:8081"
     networks:
@@ -378,6 +381,29 @@ services:
       - ./services/dialogs/src:/app/src
       - ./services/dialogs/migrations:/app/migrations
 
+  dialogs-rebalance-worker:
+    build:
+      context: .
+      dockerfile: services/dialogs/Dockerfile
+    command: ["celery", "-A", "src.tasks.rebalance", "worker", "-B", "-l", "info"]
+    depends_on:
+      redis:
+        condition: service_started
+      citus-coordinator:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - DB_MASTER_URL=postgresql://postgres:otus_hw@citus-coordinator:5432/postgres
+      - REDIS_URL=redis://redis:6379/0
+      - HOT_PAIR_RATE_LIMIT=5
+      - HOT_PAIR_WINDOW_SEC=60
+      - HOT_PAIR_TTL_SEC=180
+      - HOT_WORKER_NODES=citus-worker-hot1:5432,citus-worker-hot2:5432
+    networks:
+      - citus
+    volumes:
+      - ./services/dialogs/src:/app/src
 
   grafana:
     image: grafana/grafana:latest
