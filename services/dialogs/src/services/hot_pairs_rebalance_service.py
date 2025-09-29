@@ -29,30 +29,35 @@ class HotPairsRebalanceService:
             hot_pairs = await self._hot_pairs_provider.get_hot_pairs()
             if not hot_pairs:
                 logger.debug("No hot pairs detected; nothing to rebalance")
-                return
+                hot_pairs = []
 
             async with self._db_connection.get_connection() as conn:
+                active_hot_shards: set[int] = set()
                 for pair_key in hot_pairs:
-                    await self._rebalance_pair(conn, pair_key)
+                    shard_id = await self._rebalance_pair(conn, pair_key)
+                    if shard_id is not None:
+                        active_hot_shards.add(shard_id)
+
+                await self._demote_inactive_shards(conn, active_hot_shards)
         except Exception as exc:
             logger.exception("Rebalance cycle failed: %s", exc)
 
-    async def _rebalance_pair(self, conn, pair_key: int) -> None:
+    async def _rebalance_pair(self, conn, pair_key: int) -> int | None:
         try:
             shard_id = await CitusProvider.get_shard_id(conn, pair_key)
             if shard_id is None:
                 logger.warning("No shard found for pair %s", pair_key)
-                return
+                return None
 
             placements = await CitusProvider.get_placements(conn, shard_id)
             if not placements:
                 logger.warning("No placements for shard %s", shard_id)
-                return
+                return None
 
             current_nodes = [(p["nodename"], p["nodeport"]) for p in placements]
             if self._has_hot_placement(current_nodes):
                 logger.debug("Shard %s already located on hot node; skipping", shard_id)
-                return
+                return shard_id
 
             target = self._choose_target(current_nodes)
             if target is None:
@@ -61,7 +66,7 @@ class HotPairsRebalanceService:
                     shard_id,
                     current_nodes,
                 )
-                return
+                return shard_id
 
             source = self._choose_source(current_nodes)
             if source is None:
@@ -70,7 +75,7 @@ class HotPairsRebalanceService:
                     shard_id,
                     current_nodes,
                 )
-                return
+                return shard_id
 
             logger.info(
                 "Moving shard %s for pair %s from %s:%s to %s:%s",
@@ -82,9 +87,55 @@ class HotPairsRebalanceService:
                 target[1],
             )
             await CitusProvider.move_shard(conn, shard_id, source, target)
-
+            return shard_id
         except Exception as exc:
             logger.exception("Failed to rebalance pair %s: %s", pair_key, exc)
+        return None
+
+    async def _demote_inactive_shards(
+        self, conn, active_hot_shards: set[int]
+    ) -> None:
+        if not self._hot_worker_nodes:
+            return
+
+        all_nodes_records = await CitusProvider.list_nodes(conn)
+        hot_set = set(self._hot_worker_nodes)
+        cold_nodes = [
+            (record["nodename"], record["nodeport"])
+            for record in all_nodes_records
+            if (record["nodename"], record["nodeport"]) not in hot_set
+        ]
+
+        if not cold_nodes:
+            logger.debug("No cold worker nodes available; skipping demotion")
+            return
+
+        placements = await CitusProvider.get_all_placements(conn)
+
+        for placement in placements:
+            shard_id = placement["shardid"]
+            source_node = (placement["nodename"], placement["nodeport"])
+
+            if source_node not in hot_set:
+                continue
+
+            if shard_id in active_hot_shards:
+                continue
+
+            target = self._choose_cold_target(cold_nodes)
+            if target is None:
+                logger.debug("Unable to select cold node for shard %s", shard_id)
+                continue
+
+            logger.info(
+                "Demoting shard %s from %s:%s to %s:%s",
+                shard_id,
+                source_node[0],
+                source_node[1],
+                target[0],
+                target[1],
+            )
+            await CitusProvider.move_shard(conn, shard_id, source_node, target)
 
     def _has_hot_placement(self, placements: Iterable[tuple[str, int]]) -> bool:
         hot_set = set(self._hot_worker_nodes)
@@ -107,3 +158,9 @@ class HotPairsRebalanceService:
             if node not in hot_set:
                 return node
         return None
+
+    @staticmethod
+    def _choose_cold_target(
+        cold_nodes: Sequence[tuple[str, int]]
+    ) -> tuple[str, int] | None:
+        return cold_nodes[0] if cold_nodes else None

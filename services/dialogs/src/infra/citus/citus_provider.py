@@ -3,7 +3,7 @@ import asyncpg
 
 class CitusProvider:
     @staticmethod
-    async def get_shard_id(conn: asyncpg.Connection, pair_key: int) -> int:
+    async def get_shard_id(conn: asyncpg.Connection, pair_key: int) -> int | None:
         return await conn.fetchval(
             "SELECT get_shard_id_for_distribution_column('otus_hw.dialogs', CAST($1 AS bigint))",
             pair_key,
@@ -12,14 +12,26 @@ class CitusProvider:
     @staticmethod
     async def get_placements(
         conn: asyncpg.Connection, shard_id: int
-    ) -> list[tuple[str, int]]:
+    ) -> list[asyncpg.Record]:
         return await conn.fetch(
             """
-            SELECT nodename, nodeport
+            SELECT shardid, nodename, nodeport
             FROM pg_dist_shard_placement
             WHERE shardid = $1
             """,
             shard_id,
+        )
+
+    @staticmethod
+    async def get_all_placements(conn: asyncpg.Connection) -> list[asyncpg.Record]:
+        return await conn.fetch(
+            "SELECT shardid, nodename, nodeport FROM pg_dist_shard_placement"
+        )
+
+    @staticmethod
+    async def list_nodes(conn: asyncpg.Connection) -> list[asyncpg.Record]:
+        return await conn.fetch(
+            "SELECT nodename, nodeport FROM pg_dist_node"
         )
 
     @staticmethod
